@@ -1,0 +1,80 @@
+# Every push to main becomes a release that each installed copy picks up by itself.
+#
+# Tests run on the maintainer's Mac before each push (they aren't in the repository), so this
+# only builds and publishes. The release carries:
+#   Crawlspace.app.tar.gz    the app, universal and ad-hoc signed
+#   lighthouse-runtime-<version>-<arch>.tar.gz   Node and Lighthouse, for each architecture
+name: Release
+
+on:
+  push:
+    branches: [main]
+    # A change to the docs alone would publish the same app again, and every copy would restart
+    # to install it.
+    paths-ignore:
+      - README.md
+      - docs/**
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 40
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: Tools/Lighthouse/node-version
+          cache: npm
+          cache-dependency-path: |
+            Web/package-lock.json
+            Tools/Lighthouse/package-lock.json
+      - name: Version
+        id: version
+        run: echo "version=2.1.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+      - name: Build the app
+        run: Tools/Release/make-app.sh "${{ steps.version.outputs.version }}" "${{ github.run_number }}"
+      - name: Build the Lighthouse runtime
+        run: |
+          Tools/Release/make-lighthouse-runtime.sh arm64
+          Tools/Release/make-lighthouse-runtime.sh x64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release
+          path: |
+            dist/Crawlspace.app.tar.gz
+            dist/lighthouse-runtime-*.tar.gz
+          retention-days: 3
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: release
+          path: dist
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          gh release create "v$VERSION" \
+            --title "Crawlspace $VERSION" \
+            --notes "$(git log -1 --format=%B)" \
+            --target "$GITHUB_SHA" \
+            dist/Crawlspace.app.tar.gz \
+            dist/lighthouse-runtime-*.tar.gz \
+            Tools/Release/install.sh

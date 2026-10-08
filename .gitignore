@@ -1,0 +1,29 @@
+# Xcode / SwiftPM
+.DS_Store
+build/
+DerivedData/
+*.xcodeproj/
+!*.xcodeproj/project.pbxproj.template
+xcuserdata/
+.swiftpm/
+.build/
+Packages/CrawlspaceKit/.build/
+Packages/CrawlspaceKit/Package.resolved.bak
+
+# Crawl output
+*.crawlspace/
+Tools/TestSite/__pycache__/
+dist/
+
+# AI assistant files stay local
+CLAUDE.md
+CLAUDE.local.md
+AGENTS.md
+.claude/
+.mcp.json
+.cursor/
+.gemini/
+
+# Tests and their fixture site stay on the maintainer's Mac
+Packages/CrawlspaceKit/Tests/
+Tools/TestSite/

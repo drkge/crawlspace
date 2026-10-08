@@ -1,0 +1,8 @@
+{
+  "name": "crawlspace-lighthouse-runtime",
+  "private": true,
+  "description": "The Lighthouse that Crawlspace runs, bundled with its own Node. Changing a version here ships a new runtime with the next release.",
+  "dependencies": {
+    "lighthouse": "13.5.0"
+  }
+}
