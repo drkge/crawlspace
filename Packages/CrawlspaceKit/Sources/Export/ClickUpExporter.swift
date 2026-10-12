@@ -506,21 +506,31 @@ public enum ClickUpExporter {
             }
         }
 
-        // Issues that have gone entirely: close the task rather than leave it looking outstanding.
+        // Issues that have gone entirely: close the task and its subtasks rather than leave them
+        // looking outstanding. A task closed by an earlier export may still have open subtasks.
         if let closed = detail.closedStatus {
-            for (name, task) in mine where !task.isClosed {
+            for (name, task) in mine {
                 // Every part of the issue goes with it.
                 let title = baseTitle(of: name).base
                 guard !handled.contains(title) else { continue }
                 // Left out of this export by the severities chosen, but still on the site.
                 guard let code = titleToCode[title], (counts[code] ?? 0) == 0 else { continue }
+                let openChildren = (children[task.id] ?? []).filter { !$0.isClosed }
+                guard !task.isClosed || !openChildren.isEmpty else { continue }
                 guard coveredWholeSite else {
                     result.closingHeldBack = true
                     continue
                 }
-                try await client.updateTask(id: task.id, status: closed)
-                try await client.comment(taskID: task.id, text: "Fixed: not found in \(crawlName).")
-                result.tasksClosed += 1
+                if !task.isClosed {
+                    try await client.updateTask(id: task.id, status: closed)
+                    try await client.comment(taskID: task.id, text: "Fixed: not found in \(crawlName).")
+                    result.tasksClosed += 1
+                }
+                // The task's comment says why; one per page would double the requests.
+                for child in openChildren {
+                    try await client.updateTask(id: child.id, status: closed)
+                    result.subtasksClosed += 1
+                }
             }
         }
 

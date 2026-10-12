@@ -159,14 +159,14 @@ history.
 **Running it again after the next crawl reconciles rather than repeats.** Tasks are matched by name
 among those tagged for that site, so a second export:
 
-- files a task for an issue that has appeared, and closes one whose issue has gone
+- files a task for an issue that has appeared, and closes one whose issue has gone, subtasks and all
 - adds subtasks for pages that are newly affected, and closes those that are fixed
 - comments on a task whose count has moved (*8 → 2 affected in …*) and re-attaches the CSV
 - reopens anything that was closed and has come back
 
 **Clean-up after fixes.** Rescan once the work is done and export to the same list: subtasks for
-pages that came back clean are closed, and tasks for issues that have gone are closed, each with a
-comment saying which crawl showed it. Closed, not deleted — the history stays, and anything that
+pages that came back clean are closed, and tasks for issues that have gone are closed along with
+their subtasks, each task with a comment saying which crawl showed it. Closed, not deleted — the history stays, and anything that
 comes back is reopened. It only trusts what the rescan actually looked at: a subtask closes only if
 its page was crawled again, and a task only if the crawl covered the whole site, so a rescan that
 was stopped early or capped by a URL limit can't mark unvisited pages fixed. Exporting fewer
