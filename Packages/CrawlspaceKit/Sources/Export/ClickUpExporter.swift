@@ -22,7 +22,7 @@ public struct ClickUpExportOptions: Sendable {
     public var attachFullList: Bool
     public var extraTags: [String]
     /// ClickUp refuses more than 1,000 subtasks under one task (ITEM_327). An issue on more pages
-    /// than that is filed as a table instead.
+    /// than that carries on in a second task, "(part 2)", and so on.
     public var maxSubtasksPerTask = 1_000
     /// Severities filed as one task holding a table of affected URLs, rather than a subtask per
     /// page. Notices by default: reference material fixed in bulk, where 3,500 subtasks would take
@@ -56,8 +56,9 @@ public struct ClickUpExportResult: Sendable, Hashable {
     public var subtasksClosed = 0
     /// Copies already in ClickUp from an earlier export — reported, never filed again.
     public var duplicatesFound = 0
-    /// Issues with more affected pages than ClickUp allows under one task, filed as tables.
-    public var issuesOverCeiling = 0
+    /// Issues with more affected pages than ClickUp allows under one task, carried on in a new
+    /// "(part 2)" task or later.
+    public var issuesSplit = 0
     /// Issues filed as a single task with a table of URLs.
     public var tables = 0
     /// True when the crawl didn't cover the whole site, so no task was closed on its word.
@@ -74,9 +75,9 @@ public struct ClickUpExportResult: Sendable, Hashable {
         if subtasksClosed > 0 { parts.append("\(subtasksClosed.formatted()) \(subtasksClosed == 1 ? "page" : "pages") done") }
         if attachments > 0 { parts.append("\(attachments.formatted()) CSV \(attachments == 1 ? "attachment" : "attachments")") }
         var summary = parts.isEmpty ? "nothing to change" : parts.joined(separator: ", ")
-        if issuesOverCeiling > 0 {
-            summary += ". \(issuesOverCeiling) \(issuesOverCeiling == 1 ? "issue has" : "issues have") more pages "
-            summary += "than ClickUp's 1,000-subtask limit, so \(issuesOverCeiling == 1 ? "it was" : "they were") filed as a table"
+        if issuesSplit > 0 {
+            summary += ". \(issuesSplit) \(issuesSplit == 1 ? "issue has" : "issues have") more pages "
+            summary += "than ClickUp's 1,000-subtask limit, so \(issuesSplit == 1 ? "it was" : "they were") split across numbered tasks"
         }
         if closingHeldBack {
             summary += ". No tasks were closed: this crawl didn't cover the whole site, so an issue missing from it "
@@ -103,7 +104,7 @@ extension ClickUpExportResult {
         tasksReopened += other.tasksReopened
         subtasksClosed += other.subtasksClosed
         duplicatesFound += other.duplicatesFound
-        issuesOverCeiling += other.issuesOverCeiling
+        issuesSplit += other.issuesSplit
         tables += other.tables
         closingHeldBack = closingHeldBack || other.closingHeldBack
     }
@@ -361,6 +362,12 @@ public enum ClickUpExporter {
                 mine[task.name] = task
             }
         }
+        // Each issue's tasks by part number: 1 for the issue's own title, then "(part 2)" and on.
+        var partsByTitle: [String: [Int: ClickUpClient.ExistingTask]] = [:]
+        for (name, task) in mine {
+            let (base, part) = baseTitle(of: name)
+            partsByTitle[base, default: [:]][part] = task
+        }
 
         var handled: Set<String> = []
 
@@ -380,53 +387,65 @@ public enum ClickUpExporter {
             // alone: the first can easily be one that lacks the shared link.
             let lead = try templateLead(code: definition.code, ids: Array(ids.prefix(10)), store: store)
 
-            // A table rather than subtasks: for the severities chosen, and for anything with more
-            // pages than ClickUp will take as subtasks under one task.
-            let tooBig = ids.count > options.maxSubtasksPerTask
-            let asTable = options.tableSeverities.contains(definition.severity) || tooBig
-            if tooBig, !options.tableSeverities.contains(definition.severity) { result.issuesOverCeiling += 1 }
+            // A table rather than subtasks, for the severities chosen.
+            let asTable = options.tableSeverities.contains(definition.severity)
             let table = asTable
                 ? try urlTable(code: definition.code, ids: ids, site: site, store: store, rows: options.tableRows)
                 : nil
-            let markdown = description(definition, count: count, site: site, crawl: crawlName,
-                                       showing: asTable || options.subtaskLimit <= 0
-                                           ? ids.count : min(options.subtaskLimit, ids.count),
-                                       lead: lead, table: table)
+            let showing = asTable || options.subtaskLimit <= 0 ? ids.count : min(options.subtaskLimit, ids.count)
+            func markdown(part: Int) -> String {
+                description(definition, count: count, site: site, crawl: crawlName, showing: showing,
+                            lead: lead, table: table, part: part, firstPart: title)
+            }
 
-            let parentID: String
+            // The issue's tasks: one, or a numbered run when it has more pages than ClickUp takes
+            // under a single task.
+            var parts: [(number: Int, id: String)] = []
             var isNew = false
             var countChanged = true
-            if let already = mine[title] {
-                parentID = already.id
-                let before = previousCount(in: already.description)
-                countChanged = before != count
-                try await reconcileParent(already, count: count, before: before, crawl: crawlName,
-                                          markdown: markdown, refresh: asTable, detail: detail,
+            let existingParts = (partsByTitle[title] ?? [:]).sorted { $0.key < $1.key }
+            for (number, task) in existingParts {
+                let before = previousCount(in: task.description)
+                if parts.isEmpty { countChanged = before != count }
+                try await reconcileParent(task, count: count, before: before, crawl: crawlName,
+                                          markdown: markdown(part: number), refresh: asTable, detail: detail,
                                           client: client, result: &result)
-            } else {
+                parts.append((number, task.id))
+            }
+            // ClickUp counts every subtask under a task, open or closed, against its limit.
+            var room: [String: Int] = [:]
+            var filedUnder: [String: Int] = [:]
+            var split = false
+            func newPart() async throws {
+                let number = (parts.map(\.number).max() ?? 0) + 1
                 let created = try await client.createTask(listID: options.listID, .init(
-                    name: title, markdown: markdown,
+                    name: partTitle(title, part: number), markdown: markdown(part: number),
                     tags: tags(site: site, severity: definition.severity, category: definition.category, extra: options.extraTags),
                     priority: priority(for: definition.severity)
                 ))
-                parentID = created.id
-                isNew = true
+                parts.append((number, created.id))
+                room[created.id] = options.maxSubtasksPerTask
                 result.tasks += 1
+                if number > 1 { split = true }
+            }
+            if parts.isEmpty {
+                try await newPart()
+                isNew = true
             }
             if asTable { result.tables += 1 }
 
-            let existingChildren = children[parentID] ?? []
+            let existingChildren = parts.flatMap { children[$0.id] ?? [] }
+            for part in parts where room[part.id] == nil {
+                room[part.id] = max(0, options.maxSubtasksPerTask - (children[part.id]?.count ?? 0))
+            }
             var byName: [String: ClickUpClient.ExistingTask] = [:]
             for child in existingChildren { byName[child.name] = child }
             // Two subtasks with one name means an earlier export filed that page twice. Say so; never
             // add a third.
             result.duplicatesFound += existingChildren.count - byName.count
 
-            // ClickUp counts every subtask under the task, open or closed, against its limit.
-            var room = max(0, options.maxSubtasksPerTask - existingChildren.count)
             // http:// and https:// copies of a page share a subtask name; file it once.
             var filedThisRun: Set<String> = []
-            var overflowed = false
             let shown = asTable ? [] : (options.subtaskLimit <= 0 ? ids : Array(ids.prefix(options.subtaskLimit)))
             for row in try store.rows(ids: shown) {
                 let name = subtaskName(for: row.url, site: site)
@@ -439,22 +458,31 @@ public enum ClickUpExporter {
                     }
                     continue
                 }
-                guard room > 0 else {
-                    overflowed = true
-                    continue
+                let markdown = subtaskMarkdown(url: row.url, crawl: crawlName,
+                                               evidence: try IssueEvidenceBuilder.evidence(
+                                                   for: definition.code, urlID: row.id, store: store))
+                // Into the first part with room, starting the next part when they're all full.
+                while true {
+                    if !parts.contains(where: { room[$0.id, default: 0] > 0 }) { try await newPart() }
+                    let parent = parts.first { room[$0.id, default: 0] > 0 }!.id
+                    do {
+                        try await client.createTask(listID: options.listID, .init(name: name, markdown: markdown, parent: parent))
+                    } catch let error as ClickUpError {
+                        // Full sooner than counted — someone added subtasks by hand. Move on to the
+                        // next part, unless even an empty one is refused.
+                        guard case .tooManySubtasks = error,
+                              (children[parent]?.count ?? 0) + filedUnder[parent, default: 0] > 0 else { throw error }
+                        room[parent] = 0
+                        continue
+                    }
+                    room[parent, default: 0] -= 1
+                    filedUnder[parent, default: 0] += 1
+                    break
                 }
-                try await client.createTask(listID: options.listID, .init(
-                    name: name,
-                    markdown: subtaskMarkdown(url: row.url, crawl: crawlName,
-                                              evidence: try IssueEvidenceBuilder.evidence(
-                                                  for: definition.code, urlID: row.id, store: store)),
-                    parent: parentID
-                ))
                 filedThisRun.insert(name)
-                room -= 1
                 result.subtasks += 1
             }
-            if overflowed { result.issuesOverCeiling += 1 }
+            if split { result.issuesSplit += 1 }
             result.urlsCovered += asTable ? min(ids.count, options.tableRows) : shown.count
 
             // Pages that are no longer affected at all get closed, with a note saying why.
@@ -467,12 +495,11 @@ public enum ClickUpExporter {
                 }
             }
 
-            // The CSV is re-attached only when it would say something new — and always when the
-            // ceiling kept pages out of the subtasks, since otherwise they'd be nowhere.
-            let leftOut = asTable ? ids.count > options.tableRows : (ids.count > shown.count || overflowed)
-            if leftOut, options.attachFullList || overflowed || asTable, isNew || countChanged || overflowed {
+            // The CSV is re-attached only when it would say something new, and only to the first part.
+            let leftOut = asTable ? ids.count > options.tableRows : ids.count > shown.count
+            if leftOut, options.attachFullList || asTable, isNew || countChanged {
                 let csv = try csvData(store: store, ids: ids, code: definition.code)
-                try await client.attach(taskID: parentID,
+                try await client.attach(taskID: parts[0].id,
                                         filename: "\(definition.code)-\(ids.count)-urls.csv", data: csv)
                 result.attachments += 1
                 result.urlsInAttachments += ids.count
@@ -481,7 +508,10 @@ public enum ClickUpExporter {
 
         // Issues that have gone entirely: close the task rather than leave it looking outstanding.
         if let closed = detail.closedStatus {
-            for (title, task) in mine where !handled.contains(title) && !task.isClosed {
+            for (name, task) in mine where !task.isClosed {
+                // Every part of the issue goes with it.
+                let title = baseTitle(of: name).base
+                guard !handled.contains(title) else { continue }
                 // Left out of this export by the severities chosen, but still on the site.
                 guard let code = titleToCode[title], (counts[code] ?? 0) == 0 else { continue }
                 guard coveredWholeSite else {
@@ -537,10 +567,26 @@ public enum ClickUpExporter {
         return host == site ? "\(path)\(query)" : "\(host)\(path)\(query)"
     }
 
+    /// "Page Titles: Missing (part 2)": where an issue's pages carry on once one task is full.
+    static func partTitle(_ title: String, part: Int) -> String {
+        part <= 1 ? title : "\(title) (part \(part))"
+    }
+
+    /// The issue's own title and which part a task is, 1 for the first.
+    static func baseTitle(of name: String) -> (base: String, part: Int) {
+        guard let match = name.wholeMatch(of: /(.+) \(part ([0-9]+)\)/), let part = Int(match.2) else { return (name, 1) }
+        return (String(match.1), part)
+    }
+
     static func description(_ definition: IssueDefinition, count: Int, site: String,
                             crawl: String, showing: Int, lead: IssueEvidence? = nil,
-                            table: String? = nil) -> String {
-        var text = """
+                            table: String? = nil, part: Int = 1, firstPart: String? = nil) -> String {
+        var text = ""
+        if part > 1, let firstPart {
+            text += "**Part \(part).** This issue is on more pages than ClickUp allows under one task, "
+            text += "so they carry on here from *\(firstPart)*.\n\n"
+        }
+        text += """
         **\(count.formatted()) \(count == 1 ? "URL" : "URLs") affected on \(site).**
 
         \(definition.description)

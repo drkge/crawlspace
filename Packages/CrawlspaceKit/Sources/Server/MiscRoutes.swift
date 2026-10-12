@@ -346,26 +346,26 @@ enum ClickUpPlan {
         guard !chosen.isEmpty else { return "Nothing to file at these severities." }
 
         let affected = chosen.reduce(0) { $0 + (counts[$1.code] ?? 0) }
-        // Tables for the chosen severities and for anything too big for ClickUp's 1,000 subtasks.
-        let isTable = { (definition: IssueDefinition) in
-            tableSeverities.contains(definition.severity) || (counts[definition.code] ?? 0) > 1_000
-        }
+        let isTable = { (definition: IssueDefinition) in tableSeverities.contains(definition.severity) }
         let tables = chosen.filter(isTable).count
-        let subtasks = chosen.filter { !isTable($0) }.reduce(0) { total, definition in
+        let filed = chosen.filter { !isTable($0) }.map { definition in
             let count = counts[definition.code] ?? 0
-            return total + (limit <= 0 ? count : min(limit, count))
+            return limit <= 0 ? count : min(limit, count)
         }
+        let subtasks = filed.reduce(0, +)
+        // ClickUp takes 1,000 subtasks under one task; past that an issue carries on in "(part 2)".
+        let tasks = chosen.count + filed.reduce(0) { $0 + max(0, ($1 + 999) / 1_000 - 1) }
         let csvs = chosen.filter { definition in
             let count = counts[definition.code] ?? 0
             return isTable(definition) ? count > 200 : (limit > 0 && count > limit)
         }.count
 
-        var parts = ["\(chosen.count) tasks"]
+        var parts = ["\(tasks) tasks"]
         if subtasks > 0 { parts.append("\(subtasks.formatted()) subtasks") }
         if tables > 0 { parts.append("\(tables) as \(tables == 1 ? "a table" : "tables")") }
         if request.attachFullList, csvs > 0 { parts.append("\(csvs) CSV \(csvs == 1 ? "attachment" : "attachments")") }
         var text = parts.joined(separator: ", ") + " — covering \(affected.formatted()) affected URLs."
-        if let duration = estimate(requests: chosen.count + subtasks + csvs + 2) {
+        if let duration = estimate(requests: tasks + subtasks + csvs + 2) {
             text += " About \(duration) on ClickUp's smallest plan, quicker on the larger ones."
         }
         return text

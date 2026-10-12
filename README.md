@@ -127,9 +127,10 @@ page it affects.
 page; that suits errors and warnings. A table files the whole issue as one task listing every URL —
 the page, what on it is wrong, and where — which suits notices, fixed in bulk. On a large site,
 notices as subtasks can mean thousands of them and the best part of an hour of filing; as tables,
-a few dozen tasks. Notices default to a table. Anything on more than 1,000 pages is always a table,
-because ClickUp allows no more subtasks than that under one task. Tables show the first 200 URLs,
-with every one in the attached CSV, and are rewritten on each export.
+a few dozen tasks. Notices default to a table. ClickUp allows no more than 1,000 subtasks under one
+task, so an issue on more pages than that carries on in *H1: Missing (part 2)*, *(part 3)* and so on,
+in the same list; later exports fill the last part before starting another. Tables show the first
+200 URLs, with every one in the attached CSV, and are rewritten on each export.
 
 **Every affected page as a subtask**, which is the default: it files the lot and misses nothing,
 which is what a team working tasks one at a time wants. A CSV attachment is a document, not work. The cost is time — ClickUp allows 100 requests a minute on Free, Unlimited and Business,
