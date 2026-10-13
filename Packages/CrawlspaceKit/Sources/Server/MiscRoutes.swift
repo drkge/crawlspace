@@ -168,12 +168,11 @@ struct MiscRoutes {
         router.get("api/crawls/:id/clickup/destination") { _, context in
             let store = try await library.session(context.parameters.string("id")).store
             let site = Self.site(of: try store.loadConfig())
-            let shopify = ShopifyProfile.isStore(try store.loadConfig())
-            let topics = ClickUpTopic.topics(shopify: shopify).map {
-                ClickUpTopicDTO(id: $0.rawValue, label: $0.label, hint: $0.hint(shopify: shopify))
+            let topics = ClickUpOverview.topics.map {
+                ClickUpTopicDTO(id: $0.rawValue, label: $0.label, hint: ClickUpOverview.hint(for: $0))
             }
             return JSON(ClickUpDestinationDTO(site: site, destination: SettingsStore.load().clickUpDestinations[site],
-                                              topics: topics, shopify: shopify))
+                                              topics: topics, shopify: ShopifyProfile.isStore(try store.loadConfig())))
         }
 
         router.post("api/crawls/:id/clickup/plan") { request, context in
@@ -186,8 +185,9 @@ struct MiscRoutes {
             let body = try await request.decodeJSON(ClickUpRequest.self, context: context)
             let destination = body.destination
             guard !destination.spaceID.isEmpty else { throw ServerError.badRequest("Choose a space to file into.") }
-            for topic in Settings.topics(body.topics)
-            where destination.target(for: topic).listName.trimmingCharacters(in: .whitespaces).isEmpty {
+            let severities = Settings.severities(body.severities)
+            for topic in ClickUpOverview.topics where topic.pageSeverity.map(severities.contains) ?? false
+                && destination.target(for: topic).listName.trimmingCharacters(in: .whitespaces).isEmpty {
                 throw ServerError.badRequest("Give \(topic.label) a list to go into.")
             }
             let client = try clickUp()
@@ -198,25 +198,22 @@ struct MiscRoutes {
                 $0.clickUpSeverities = body.severities
                 $0.clickUpTopics = body.topics
             }
-            let options = ClickUpExportOptions(
-                listID: "",
-                severities: Settings.severities(body.severities),
-                topics: Settings.topics(body.topics),
-                extraTags: body.extraTag.isEmpty ? [] : [body.extraTag]
-            )
+            let options = ClickUpExportOptions(listID: "", severities: severities,
+                                               extraTags: body.extraTag.isEmpty ? [] : [body.extraTag])
             let store = session.store
             let events = session.events
             let (result, resolved) = try await session.runExport("to ClickUp") {
-                try await ClickUpFolderExport.export(store: store, destination: destination, options: options,
-                                                     client: client) { title, fraction in
+                try await ClickUpOverview.export(store: store, destination: destination, options: options,
+                                                 client: client) { title, fraction in
                     events.publish("clickup", ClickUpProgress(title: title, fraction: fraction))
                 }
             }
-            let places = ClickUpTopic.allCases.compactMap { resolved.paths[$0] }.joined(separator: ", ")
-            var message = "Filed into \(destination.spaceName) (\(places)): \(result.summary)."
-            if !resolved.created.isEmpty {
-                message += " Made " + ListFormatter.localizedString(byJoining: resolved.created) + "."
+            let places = ClickUpTopic.allCases.compactMap { resolved?.paths[$0] }.joined(separator: ", ")
+            var message = "Filed the overview into \(destination.spaceName) (\(places)): \(result.summary)."
+            if let created = resolved?.created, !created.isEmpty {
+                message += " Made " + ListFormatter.localizedString(byJoining: created) + "."
             }
+            message += " The pages themselves are in Fixes."
             return JSON(MessageDTO(message: message))
         }
     }
@@ -387,22 +384,16 @@ struct ClickUpRequest: Decodable, Sendable {
 /// finds out afterwards. The same tasks the exporter files, worked out the same way.
 enum ClickUpPlan {
     static func describe(store: CrawlStore, request: ClickUpRequest) throws -> String {
-        let topics = Settings.topics(request.topics)
-        let units = try ClickUpUnitBuilder.units(store: store, severities: Settings.severities(request.severities), topics: topics)
-        guard !units.isEmpty else { return "Nothing to file at these severities." }
-        let filed = units.filter { !$0.heldOpen }
-        guard !filed.isEmpty else { return "Nothing to file at these severities." }
-        let lists = Set(filed.map(\.topic)).count
-        let subtasks = filed.reduce(0) { $0 + $1.subtasks.count }
-        let csvs = filed.filter { !$0.countsIssues && $0.pages.count > 200 }.count
-            + filed.flatMap(\.subtasks).filter { $0.pages.count > 200 }.count
-        var text = "\(filed.count.formatted()) \(filed.count == 1 ? "task" : "tasks")"
-        if subtasks > 0 { text += " and \(subtasks.formatted()) \(subtasks == 1 ? "subtask" : "subtasks")" }
-        text += " across \(lists) \(lists == 1 ? "list" : "lists")"
-        if csvs > 0 { text += ", \(csvs) CSV \(csvs == 1 ? "attachment" : "attachments")" }
-        text += "."
-        if let duration = estimate(requests: filed.count + subtasks + csvs + 2 * lists) {
-            text += " About \(duration) on ClickUp's smallest plan, quicker on the larger ones."
+        let counts = try ClickUpOverview.preview(store: store, severities: Settings.severities(request.severities))
+        let total = counts.values.reduce(0, +)
+        guard total > 0 else { return "Nothing to file at these severities." }
+        let lists = IssueSeverity.allCases.compactMap { severity in
+            counts[severity].map { "\($0) in \(severity.label)" }
+        }
+        var text = "\(total) overview \(total == 1 ? "task" : "tasks"), one per kind of problem: "
+            + ListFormatter.localizedString(byJoining: lists) + ". Each closes by itself once its fixes are confirmed in Fixes."
+        if let duration = estimate(requests: total + 2 * lists.count) {
+            text += " About \(duration) on ClickUp's smallest plan."
         }
         return text
     }

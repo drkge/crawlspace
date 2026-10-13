@@ -554,21 +554,19 @@ struct ClickUpLists: AsyncParsableCommand {
 struct ClickUpExport: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "clickup",
-        abstract: "File a crawl's issues into ClickUp: one task per thing to fix.",
+        abstract: "File an overview of a crawl's issues into ClickUp: one task per kind of problem.",
         discussion: """
-            With --space, links, images, site settings, duplicates, speed, products and the pages \
-            left over each go into their own list in a Crawlspace folder, made if it isn't there. \
-            With --list, everything goes into that one list.
+            Brings the site's list of fixes up to date with the crawl first; the pages themselves are \
+            in the app's Fixes. With --space, each severity goes into its own list in a Crawlspace \
+            folder, made if it isn't there. With --list, everything goes into that one list.
             """
     )
 
     @Argument(help: "Path to a .crawlspace package.") var package: String
     @Option(help: "List id to file everything into. Find one with clickup-lists.") var list: String?
-    @Option(help: "Space id to file into, a list per topic in its Crawlspace folder.") var space: String?
+    @Option(help: "Space id to file into, a list per severity in its Crawlspace folder.") var space: String?
     @Option(help: "Which severities to export: error, warning, notice (comma separated).")
     var severities: String = "error,warning"
-    @Option(help: "Which lists to file: \(ClickUpTopic.allCases.map(\.rawValue).joined(separator: ", ")) (comma separated). Defaults to all.")
-    var topics: String?
     @Option(help: "Extra tag to put on every task. Repeatable.") var tag: [String] = []
     @OptionGroup var clickUp: ClickUpOptions
 
@@ -578,33 +576,18 @@ struct ClickUpExport: AsyncParsableCommand {
         guard !chosen.isEmpty else {
             throw ValidationError("--severities takes any of error, warning, notice.")
         }
-        var lists = Set(ClickUpTopic.allCases)
-        if let topics {
-            let names = topics.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
-            lists = Set(names.compactMap(ClickUpTopic.init(rawValue:)))
-            guard lists.count == names.count else {
-                throw ValidationError("--topics takes any of \(ClickUpTopic.allCases.map(\.rawValue).joined(separator: ", ")).")
-            }
-        }
         guard (list == nil) != (space == nil) else { throw ValidationError("Give either --list or --space.") }
 
         let store = try CrawlStore.open(at: URL(filePath: package))
-        let options = ClickUpExportOptions(listID: list ?? "", severities: chosen, topics: lists, extraTags: tag)
-        let client = try clickUp.client()
-        if let list {
-            let result = try await ClickUpExporter.export(store: store, options: options, client: client) { title, _ in
-                print("  \(title)")
-            }
-            print("Filed into list \(list): \(result.summary).")
-        } else if let space {
-            let destination = ClickUpDestination(spaceID: space, spaceName: "space \(space)")
-            let (result, resolved) = try await ClickUpFolderExport.export(store: store, destination: destination,
-                                                                          options: options, client: client) { title, _ in
-                print("  \(title)")
-            }
-            let places = ClickUpTopic.allCases.compactMap { resolved.paths[$0] }.joined(separator: ", ")
-            print("Filed into \(places): \(result.summary).")
+        let options = ClickUpExportOptions(listID: list ?? "", severities: chosen, extraTags: tag)
+        let destination = space.map { ClickUpDestination(spaceID: $0, spaceName: "space \($0)") }
+        let (result, resolved) = try await ClickUpOverview.export(store: store, destination: destination, options: options,
+                                                                  client: try clickUp.client()) { title, _ in
+            print("  \(title)")
         }
+        let places = resolved.map { found in ClickUpTopic.allCases.compactMap { found.paths[$0] }.joined(separator: ", ") }
+            ?? "list \(list ?? "")"
+        print("Filed into \(places): \(result.summary).")
     }
 }
 
