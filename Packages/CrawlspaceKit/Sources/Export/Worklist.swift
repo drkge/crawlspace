@@ -296,6 +296,7 @@ public final class Worklist: Sendable {
             case .image(let id): urls((unit.members.isEmpty ? [id] : unit.members) + sample)
             case .cluster: urls(unit.pages.prefix(500))
             case .setting, .productCards: urls(sample)
+            case .pattern: urls(unit.members.prefix(200) + sample)
             case .template: speed ? [] : urls(sample)
             }
             rows.append(Found(key: key, parentKey: nil, topic: unit.topic.rawValue, name: unit.name, severity: unit.severity,

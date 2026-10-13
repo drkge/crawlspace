@@ -304,7 +304,7 @@ public enum ClickUpExporter {
             entries.append((link, cell(wrong), evidence.items.first?.position?.label ?? ""))
         }
         var lines = ["**Affected URLs**" + (ids.count > shown.count
-            ? " — the first \(shown.count.formatted()) of \(ids.count.formatted()), all in the attached CSV" : ""), ""]
+            ? " — the first \(shown.count.formatted()) of \(ids.count.formatted()), most linked-to first" : ""), ""]
         if entries.allSatisfy({ $0.wrong.isEmpty && $0.place.isEmpty }) {
             lines += ["| URL |", "|---|"] + entries.map { "| \($0.page) |" }
         } else {
