@@ -113,6 +113,21 @@ public final class Worklist: Sendable {
                     UPDATE items SET status = 'done' WHERE status = 'ticked';
                     """)
             }
+            // Patterns were once named "Redirect pattern: …" and "Broken pattern: …". Renaming them
+            // in place keeps their status: otherwise the next crawl would verify the old names as gone.
+            let patterns = try Row.fetchAll(db, sql: """
+                SELECT key, topic, name FROM items WHERE name LIKE 'Redirect pattern: %' OR name LIKE 'Broken pattern: %'
+                """)
+            for row in patterns {
+                let (key, group, name): (String, String, String) = (row[0], row[1], row[2])
+                guard let renamed = ChangePatterns.renamed(name) else { continue }
+                let newKey = "\(group)|\(renamed)"
+                if try Bool.fetchOne(db, sql: "SELECT 1 FROM items WHERE key = ?", arguments: [newKey]) == true {
+                    try db.execute(sql: "DELETE FROM items WHERE key = ?", arguments: [key])
+                } else {
+                    try db.execute(sql: "UPDATE items SET key = ?, name = ? WHERE key = ?", arguments: [newKey, renamed, key])
+                }
+            }
         }
     }
 

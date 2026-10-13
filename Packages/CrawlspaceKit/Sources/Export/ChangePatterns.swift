@@ -126,16 +126,33 @@ public enum ChangePatterns {
     /// The fix's name: the reason, without counts, so the next crawl finds it again.
     static func name(of kind: Kind) -> String {
         switch kind {
-        case .destination(let path): path == "/" ? "Redirect pattern: removed pages sent to the home page"
-            : "Redirect pattern: addresses that all go to \(shown(path))"
-        case .removed(let text) where text.contains("#"): "Redirect pattern: number endings like “\(shown(text))” removed from addresses"
-        case .removed(let text): "Redirect pattern: “\(shown(text))” removed from addresses"
-        case .inserted(let text): "Redirect pattern: “\(shown(text))” added to addresses"
-        case .moved(let from, let to): "Redirect pattern: \(shown(from)) moved to \(shown(to))"
-        case .productNumbers: "Broken pattern: links to products by number, not handle"
-        case .liquid(let place): "Broken pattern: a Liquid error in \(place) written into links"
-        case .removedFromCollections: "Broken pattern: removed products still in collections"
+        case .destination(let path): path == "/" ? "Removed pages sent to the home page" : "Redirects that all go to \(shown(path))"
+        case .removed(let text): "“\(shown(text))” removed from addresses"
+        case .inserted(let text): "“\(shown(text))” added to addresses"
+        case .moved(let from, let to): "\(shown(from)) moved to \(shown(to))"
+        case .productNumbers: "Product links by number"
+        case .liquid(let place): "Liquid error in \(place)"
+        case .removedFromCollections: "Removed products still in collections"
         }
+    }
+
+    /// What `name(of:)` calls a pattern that an earlier version named "Redirect pattern: …" or
+    /// "Broken pattern: …"; nil for any other name.
+    static func renamed(_ name: String) -> String? {
+        if let match = name.wholeMatch(of: /Redirect pattern: (.+)/) {
+            let rest = String(match.1)
+            if rest == "removed pages sent to the home page" { return "Removed pages sent to the home page" }
+            if let path = rest.wholeMatch(of: /addresses that all go to (.+)/) { return "Redirects that all go to \(path.1)" }
+            if let text = rest.wholeMatch(of: /number endings like (“.+”) removed from addresses/) { return "\(text.1) removed from addresses" }
+            return rest
+        }
+        if let match = name.wholeMatch(of: /Broken pattern: (.+)/) {
+            let rest = String(match.1)
+            if rest == "links to products by number, not handle" { return "Product links by number" }
+            if let place = rest.wholeMatch(of: /a Liquid error in (.+) written into links/) { return "Liquid error in \(place.1)" }
+            if rest == "removed products still in collections" { return "Removed products still in collections" }
+        }
+        return nil
     }
 
     /// What happened, and the one fix for it.
