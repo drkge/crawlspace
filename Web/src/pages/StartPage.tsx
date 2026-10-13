@@ -158,6 +158,11 @@ export default function StartPage({ about }: { about: About | null }) {
                 <span className="hint" style={{ fontWeight: 400 }}>
                   {items.length} crawl{items.length === 1 ? '' : 's'}
                 </span>
+                {items.some((crawl) => crawl.tracking) && (
+                  <Link className="small" to={`/sites/${encodeURIComponent(site)}/fixes`} style={{ marginLeft: 'auto' }}>
+                    Fixes
+                  </Link>
+                )}
               </summary>
               {items.map((crawl) => (
                 <div className="crawl-row" key={crawl.id} onDoubleClick={() => navigate(`/crawls/${encodeURIComponent(crawl.id)}`)}>

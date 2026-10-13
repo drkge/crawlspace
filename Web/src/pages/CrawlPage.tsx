@@ -167,6 +167,14 @@ export default function CrawlPage() {
   const issueCount = rows?.issue ? (counts?.issues.find((entry) => entry.issue.code === rows.issue!.code)?.count ?? rows.ids.length) : 0
   const busy = state.isRunning || state.isPaused
 
+  // The site's list of fixes, started from this crawl the first time.
+  const openFixes = async () => {
+    const found = await run(() => api.get<{ host: string; tracking: boolean }>(`${path}/fixes`))
+    if (!found) return
+    if (!found.tracking && !(await run(() => api.post(`${path}/fixes/track`)))) return
+    navigate(`/sites/${encodeURIComponent(found.host)}/fixes`)
+  }
+
   const exportMenu = (
     <Menu label="Export">
       <button onClick={() => setSheet('clickup')}>Issues to ClickUp…</button>
@@ -242,6 +250,9 @@ export default function CrawlPage() {
           </button>
           <button onClick={() => run(() => api.post(`${path}/reveal`))}>Show in Finder</button>
         </Menu>
+        <button title="Tick off this site's fixes and check them" onClick={openFixes}>
+          Fixes
+        </button>
         {exportMenu}
         <button className="plain" title="Show or hide the inspector" onClick={() => setShowInspector(!showInspector)}>
           ◧

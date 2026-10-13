@@ -72,6 +72,8 @@ struct CrawlListItemDTO: Codable, Sendable {
     var modified: Date
     var isRunning: Bool
     var readable: Bool
+    /// The site has a list of fixes.
+    var tracking: Bool
 }
 
 struct IssueDTO: Codable, Sendable {
