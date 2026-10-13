@@ -29,6 +29,8 @@ public final class Worklist: Sendable {
         public var parentKey: String?
         public var group: String
         public var name: String
+        /// The name shortened, as the fixes list shows it.
+        public var label: String
         public var severity: IssueSeverity
         /// The kind of problem it counts as, as the client summary and ClickUp overview count them.
         public var kind: String
@@ -121,14 +123,38 @@ public final class Worklist: Sendable {
             for row in patterns {
                 let (key, group, name): (String, String, String) = (row[0], row[1], row[2])
                 guard let renamed = ChangePatterns.renamed(name) else { continue }
-                let newKey = "\(group)|\(renamed)"
-                if try Bool.fetchOne(db, sql: "SELECT 1 FROM items WHERE key = ?", arguments: [newKey]) == true {
-                    try db.execute(sql: "DELETE FROM items WHERE key = ?", arguments: [key])
-                } else {
-                    try db.execute(sql: "UPDATE items SET key = ?, name = ? WHERE key = ?", arguments: [newKey, renamed, key])
-                }
+                try Self.rename(key, to: "\(group)|\(renamed)", name: renamed, db: db)
+            }
+            // A Shopify image was once a fix for each of its two addresses, cdn.shopify.com's and the
+            // store's own; now it's one, named by the store's.
+            let images = try Row.fetchAll(db, sql: """
+                SELECT key, topic, name FROM items WHERE topic = 'images' AND name LIKE 'http%://cdn.shopify.com/s/files/%'
+                """)
+            for row in images {
+                let (key, group, name): (String, String, String) = (row[0], row[1], row[2])
+                guard let renamed = FixBuilder.shopifyFile(name) else { continue }
+                try Self.rename(key, to: "\(group)|\(renamed)", name: renamed, db: db)
             }
         }
+    }
+
+    /// Gives a fix the key a later version names it by. Where that fix is already there, the two
+    /// are one, and the one less far along is kept: a fix still open isn't hidden by its copy being
+    /// done.
+    private static func rename(_ key: String, to newKey: String, name: String, db: Database) throws {
+        guard key != newKey else { return }
+        let rank: [String: Int] = ["open": 0, "reopened": 0, "done": 1, "verified": 2]
+        let status = { (key: String) in try String.fetchOne(db, sql: "SELECT status FROM items WHERE key = ?", arguments: [key]) }
+        if let existing = try status(newKey) {
+            guard let old = try status(key), rank[old, default: 0] < rank[existing, default: 0] else {
+                try db.execute(sql: "DELETE FROM items WHERE key = ?", arguments: [key])
+                return
+            }
+            try db.execute(sql: "DELETE FROM items WHERE key = ?", arguments: [newKey])
+        }
+        try db.execute(sql: "UPDATE items SET key = ?, name = ? WHERE key = ?", arguments: [newKey, name, key])
+        try db.execute(sql: "UPDATE items SET key = ? || substr(key, ?), parent_key = ? WHERE parent_key = ?",
+                       arguments: [newKey, key.count + 1, newKey, key])
     }
 
     /// The site a crawl is of, as worklists are kept by.
@@ -408,6 +434,7 @@ public final class Worklist: Sendable {
         let done: Double? = row["done_at"]
         let verified: Double? = row["verified_at"]
         return Item(key: row["key"], parentKey: row["parent_key"], group: row["topic"], name: row["name"],
+                    label: FixBuilder.label(group: row["topic"], name: row["name"]),
                     severity: IssueSeverity(rawValue: row["severity"]) ?? .notice, kind: row["kind"],
                     status: Status(rawValue: row["status"]) ?? .open, firstSeen: row["first_seen"], lastSeen: row["last_seen"],
                     doneAt: done.map(Date.init(timeIntervalSince1970:)),

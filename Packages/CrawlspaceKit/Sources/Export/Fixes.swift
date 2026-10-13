@@ -246,11 +246,22 @@ public enum FixBuilder {
     /// An image's file, whatever size or version it's asked for at: its address without the query,
     /// when the address names an image file (logo.png?width=600, logo.png?ver=3). An address that
     /// doesn't, such as image.php?id=12, keeps its query, since that's what says which image it is.
-    static func imageFile(_ address: String) -> String {
+    ///
+    /// A Shopify store's file is the same file at cdn.shopify.com/s/files/1/<shop>/… and at the
+    /// store's own /cdn/shop/…, so both are taken as the store's.
+    static func imageFile(_ address: String, origin: String = "") -> String {
+        var file = address
         let parts = address.split(separator: "?", maxSplits: 1)
-        guard parts.count == 2, let path = URL(string: String(parts[0]))?.pathExtension.lowercased(),
-              imageExtensions.contains(path) else { return address }
-        return String(parts[0])
+        if parts.count == 2, let path = URL(string: String(parts[0]))?.pathExtension.lowercased(), imageExtensions.contains(path) {
+            file = String(parts[0])
+        }
+        return shopifyFile(file).map { origin + $0 } ?? file
+    }
+
+    /// The store's own path for a file on Shopify's CDN: /cdn/shop/files/logo.png for
+    /// https://cdn.shopify.com/s/files/1/0750/7322/5010/files/logo.png; nil for any other address.
+    static func shopifyFile(_ address: String) -> String? {
+        address.wholeMatch(of: /https?:\/\/cdn\.shopify\.com\/s\/files\/1\/(?:[0-9]{4}\/){2,3}(.+)/).map { "/cdn/shop/\($0.1)" }
     }
 
     static let imageExtensions: Set = ["jpg", "jpeg", "png", "gif", "webp", "avif", "svg", "bmp", "tif", "tiff", "ico", "heic"]
@@ -466,7 +477,7 @@ public enum FixBuilder {
             }
             try urls.load(Set(images.keys), db: db)
             var files: [String: [Int64]] = [:]
-            for image in images.keys { files[imageFile(urls[image].url), default: []].append(image) }
+            for image in images.keys { files[imageFile(urls[image].url, origin: origin), default: []].append(image) }
             for (file, sizes) in files {
                 let ordered = sizes.sorted { (images[$0]?.pages.count ?? 0, $1) > (images[$1]?.pages.count ?? 0, $0) }
                 var codes: Set<String> = []
@@ -860,9 +871,15 @@ public enum FixBuilder {
             var lead = "**[\(FixBuilder.cell(IssueEvidenceBuilder.shorten(image.url, site: origin)))](\(FixBuilder.linkTarget(image.url)))** "
                 + "is on \(unit.pages.count.formatted()) \(unit.pages.count == 1 ? "page" : "pages") with an issue."
             if unit.members.count > 1 {
-                lead += " It's one file, served at \(unit.members.count) sizes: its alt text and weight are set once, for all of them."
+                lead += " It's one file, at \(unit.members.count) addresses: its alt text and weight are set once, for all of them."
             }
             parts.append(lead)
+            if unit.members.count > 1 {
+                let addresses = try store.rows(ids: Array(unit.members.prefix(rows)))
+                parts.append((["**Its addresses**", ""] + addresses.map {
+                    "- [\(FixBuilder.cell(IssueEvidenceBuilder.shorten($0.url, site: origin)))](\(FixBuilder.linkTarget($0.url)))"
+                }).joined(separator: "\n"))
+            }
             for code in unit.codes {
                 var section = "**\(title(code))**"
                 if code == "images_over_100kb" {
@@ -1108,6 +1125,71 @@ extension Array {
 // MARK: - Formatting
 
 extension FixBuilder {
+    /// What the fixes list shows for a fix: its name, shortened. The name stays as it is, since
+    /// it's how the worklist knows the fix from one crawl to the next; the label can change freely.
+    ///
+    /// An image is its file name; an address elsewhere loses its https://www. and tracking, and
+    /// the middle of its path when long; encoded characters (%C2%AE) are shown as themselves; and
+    /// a duplicated title, description or H1 is quoted shorter.
+    public static func label(group: String, name: String) -> String {
+        if group == FixGroup.images.rawValue, name.hasPrefix("/") || name.hasPrefix("http") {
+            let parts = name.split(separator: "?", maxSplits: 1).map(String.init)
+            let file = parts[0].split(separator: "/").last.map(String.init) ?? parts[0]
+            return decoded(file) + (parts.count == 2 ? "?\(parts[1])" : "")
+        }
+        if let match = name.wholeMatch(of: /(Duplicate (?:title|description|H1)): “(.*)”/) {
+            var quote = String(match.2)
+            if quote.hasSuffix("…") { quote.removeLast() }
+            return "\(match.1): “\(truncated(quote, labelQuote))”"
+        }
+        // An address ends the name, if there's one in it: "Broken link: /gone", "Links on /about".
+        guard let space = name.lastIndex(of: " ").map(name.index(after:)) ?? (name.hasPrefix("/") ? name.startIndex : nil) else {
+            return name
+        }
+        let address = String(name[space...])
+        if address.hasPrefix("http://") || address.hasPrefix("https://") {
+            return String(name[..<space]) + readable(external: address)
+        }
+        if address.hasPrefix("/") { return String(name[..<space]) + decoded(address) }
+        return name
+    }
+
+    /// How long a duplicated title, description or H1 is quoted in a label.
+    static let labelQuote = 50
+    /// How long another site's address gets in a label before its middle is left out.
+    static let labelAddress = 80
+
+    /// Query parameters that only say where a click came from.
+    static let trackingParameters: Set = ["gclid", "gclsrc", "gbraid", "wbraid", "dclid", "msclkid", "fbclid", "srsltid",
+                                          "pscid", "mc_cid", "mc_eid", "_ga", "_gl", "igshid", "yclid", "ref_src"]
+
+    /// Another site's address as a label: without https:// or tracking, and with the middle of a
+    /// long path left out. http:// and www. stay, since either can be why a link redirects.
+    static func readable(external address: String) -> String {
+        guard let url = URL(string: address), let host = url.host() else { return address }
+        let site = (url.scheme == "https" ? "" : "\(url.scheme ?? "http")://") + host + (url.port.map { ":\($0)" } ?? "")
+        let path = decoded(url.path())
+        let query = (url.query() ?? "").split(separator: "&").filter { item in
+            let name = item.split(separator: "=", maxSplits: 1).first.map(String.init)?.lowercased() ?? ""
+            return !trackingParameters.contains(name) && !name.hasPrefix("utm_")
+        }
+        let whole = site + (path == "/" ? "" : path) + (query.isEmpty ? "" : "?" + query.joined(separator: "&"))
+        guard whole.count > labelAddress else { return whole }
+        // As much of the end of the path as fits: the end is what tells one page from another.
+        var tail: [Substring] = []
+        for segment in path.split(separator: "/").reversed() {
+            let longer = "\(site)/…/" + ([segment] + tail).joined(separator: "/")
+            if !tail.isEmpty, longer.count > labelAddress { break }
+            tail.insert(segment, at: 0)
+        }
+        return truncated("\(site)/…/" + tail.joined(separator: "/"), labelAddress)
+    }
+
+    /// An address with its percent-encoding read: "chimney-sheep®" for "chimney-sheep%C2%AE".
+    static func decoded(_ address: String) -> String {
+        address.removingPercentEncoding ?? address
+    }
+
     /// The whole URL is unreadable as a name, so the path leads and the host follows.
     static func pageName(for address: String, site: String) -> String {
         guard let url = URL(string: address) else { return address }

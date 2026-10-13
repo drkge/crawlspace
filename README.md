@@ -141,7 +141,11 @@ below it, each kind of problem, by severity, with how many of its fixes are veri
 
 A fix is one change, with every page it touches: a broken address and every link to it, an image
 file, a setting, a change to a template, a page and its issues. Selecting one shows, in the
-inspector, what's wrong where and how to fix it.
+inspector, what's wrong where and how to fix it, with every address in full.
+
+The list keeps names short: an image by its file name (one fix for the file, at whatever size or
+address it's served, Shopify's CDN included), another site's address without https:// or tracking
+and with the middle of a long path left out, and encoded characters as themselves (®, not %C2%AE).
 
 **Change patterns.** Broken and redirecting addresses that changed for the same reason are one fix,
 not one per address: removed pages all sent to the home page, "®" or a "-1" taken out of handles, a

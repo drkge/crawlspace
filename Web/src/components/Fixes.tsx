@@ -17,6 +17,8 @@ export interface FixItem {
   parentKey?: string
   group: string
   name: string
+  /** The name shortened, as the list shows it. */
+  label: string
   severity: number
   kind: string
   status: FixStatus
@@ -74,8 +76,14 @@ function leaves(list: FixList) {
   return list.items.filter((item) => !parents.has(item.key))
 }
 
-/** A fix's name in a list of one kind, where an issue under a page is named by its page. */
+/** A fix's label in a list of one kind, where an issue under a page is named by its page. */
 function displayName(item: FixItem, byKey: Map<string, FixItem>) {
+  if (!item.parentKey) return item.label
+  return byKey.get(item.parentKey)?.label ?? item.label
+}
+
+/** The whole name, for a tooltip: the parent's for an issue under a page. */
+function fullName(item: FixItem, byKey: Map<string, FixItem>) {
   if (!item.parentKey) return item.name
   return byKey.get(item.parentKey)?.name ?? item.name
 }
@@ -229,8 +237,8 @@ export function FixesPane(props: {
                 onChange={(event) => props.onMarkDone([item.key], event.target.checked)}
               />
               <Severity severity={severityNames[item.severity] ?? 'notice'} />
-              <span className="fix-name" title={displayName(item, byKey)}>
-                {all ? item.name : displayName(item, byKey)}
+              <span className="fix-name" title={all ? item.name : fullName(item, byKey)}>
+                {all ? item.label : displayName(item, byKey)}
               </span>
               {all && <span className="hint">{groupNames[item.group] ?? item.group}</span>}
               <span className="hint">
@@ -322,7 +330,9 @@ export function FixInspector(props: {
   return (
     <>
       <div className="inspector-header">
-        <div className="url">{parent ? `${parent.name} · ${item.name}` : item.name}</div>
+        <div className="url" title={parent ? `${parent.name} · ${item.name}` : item.name}>
+          {parent ? `${parent.label} · ${item.label}` : item.label}
+        </div>
         <div className="row wrap">
           <Severity severity={severityNames[item.severity] ?? 'notice'} />
           <StatusChip status={item.status} />
@@ -379,7 +389,7 @@ export function FixInspector(props: {
                   onClick={(event) => event.stopPropagation()}
                   onChange={(event) => props.onMarkDone([child.key], event.target.checked)}
                 />
-                <span className="fix-name">{child.name}</span>
+                <span className="fix-name">{child.label}</span>
                 <StatusChip status={child.status} />
               </div>
             ))}
