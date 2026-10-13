@@ -330,8 +330,7 @@ export interface About {
 
 export interface Settings {
   clickUpSeverities: Severity[]
-  clickUpTableSeverities: Severity[]
-  clickUpSubtaskLimit: number
+  clickUpTopics: string[]
   automaticUpdates: boolean
 }
 

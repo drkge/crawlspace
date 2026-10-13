@@ -118,29 +118,33 @@ a PDF or web page. They download through the browser.
 
 ## Filing issues into ClickUp
 
-**Export ▸ Issues to ClickUp…** (⇧⌘K) turns what the crawl found into work: one task per issue,
-named as the app names it (*H1: Missing*), with the description and the fix from the catalogue, a
-priority from its severity — errors Urgent, warnings High, notices Low — and a subtask for each
-page it affects.
+**Export ▸ Issues to ClickUp…** (⇧⌘K) turns what the crawl found into work: **one task per thing
+to fix**, not one per page or one per issue type. Most of what a crawl reports is the same few fixes
+seen from every page: a broken link in the footer, a missing security header, a logo without alt
+text. Filed page by page, each of those is thousands of tasks for one edit. So each kind of fix has
+a list of its own, in a Crawlspace folder in the space you choose:
 
-**Subtasks or a table, chosen per severity.** Subtasks can be assigned and ticked off page by
-page; that suits errors and warnings. A table files the whole issue as one task listing every URL —
-the page, what on it is wrong, and where — which suits notices, fixed in bulk. On a large site,
-notices as subtasks can mean thousands of them and the best part of an hour of filing; as tables,
-a few dozen tasks. Notices default to a table. ClickUp allows no more than 1,000 subtasks under one
-task, so an issue on more pages than that carries on in *H1: Missing (part 2)*, *(part 3)* and so on,
-in the same list; later exports fill the last part before starting another. Tables show the first
-200 URLs, with every one in the attached CSV, and are rewritten on each export.
+| List | One task per |
+|---|---|
+| **Links** | URL that is broken, redirects or couldn't be checked, with every page linking to it. The 404 and the links to it are one fix, so they are one task. Plus a task per link in the theme with generic text or nofollow, and one per page for the rest |
+| **Images** | image, with every page showing it and what's wrong with it (alt text, size, dimensions) |
+| **Site settings** | setting: a security header, a sitemap problem, HTTP links on an HTTPS site |
+| **Duplicates** | group of pages sharing a title, description, H1 or their content |
+| **Speed** | template Lighthouse measured (Product, Collection…), or page without one |
+| **Products** | product page, with what its data is missing |
+| **Errors**, **Warnings**, **Notices** | page, with the rest of its issues listed in the task |
 
-**Every affected page as a subtask**, which is the default: it files the lot and misses nothing,
-which is what a team working tasks one at a time wants. A CSV attachment is a document, not work. The cost is time — ClickUp allows 100 requests a minute on Free, Unlimited and Business,
-so 5,000 subtasks take the best part of an hour. Crawlspace reads the workspace's own
-`X-RateLimit-Limit` and speeds up when the plan allows it.
+A link counts as part of the theme when it's on ten or more pages, or on several in the navigation,
+header, footer or sidebar; its task says so (*Start here: 312 of these 340 pages carry it in the
+footer*). Each task lists what's wrong, where, and how to fix it, with a table of the pages it
+covers: the most linked-to 200, and every one in an attached CSV when there are more. Priority
+comes from the worst issue in it: errors Urgent, warnings High, notices Low.
 
-Turn it off and it files the most linked-to pages as subtasks — 25, adjustable — and attaches
-everything else as a CSV. Either way the panel says what it is about to do before it does it:
-*20 tasks, 277 subtasks, 7 CSV attachments — covering 1,489 affected URLs. About 3 minutes on
-ClickUp's smallest plan, quicker on the larger ones.*
+Each list can go to any list in the space or a new one, and is remembered for the site. The panel
+says what it is about to do before it does it: *312 tasks across 7 lists, 4 CSV attachments. About
+4 minutes on ClickUp's smallest plan, quicker on the larger ones.* ClickUp allows 100 requests a
+minute on Free, Unlimited and Business; Crawlspace reads the workspace's own `X-RateLimit-Limit` and
+speeds up when the plan allows it.
 
 Authentication is a personal API token from ClickUp ▸ Settings ▸ Apps, kept with Crawlspace's other
 secrets (see *Credentials* below). From the command line:
@@ -150,27 +154,30 @@ crawlspace clickup-lists
 ```
 
 ```bash
-crawlspace clickup audit.crawlspace --list 901234567 --severities error,warning --cap 25
+crawlspace clickup audit.crawlspace --space 90120001 --severities error,warning
 ```
 
-The token comes from `CLICKUP_TOKEN` or the saved token rather than a flag, so it stays out of shell
-history.
+`--space` files into the Crawlspace folder's lists, as the app does; `--list` puts everything in one
+list, and `--topics links,images` files only those. The token comes from `CLICKUP_TOKEN` or the
+saved token rather than a flag, so it stays out of shell history.
 
 **Running it again after the next crawl reconciles rather than repeats.** Tasks are matched by name
 among those tagged for that site, so a second export:
 
-- files a task for an issue that has appeared, and closes one whose issue has gone, subtasks and all
-- adds subtasks for pages that are newly affected, and closes those that are fixed
-- comments on a task whose count has moved (*8 → 2 affected in …*) and re-attaches the CSV
+- files a task for a fix that has appeared, and closes one that has gone
+- rewrites a task whose details have changed, and comments when its count has moved (*8 → 2 pages
+  in …*), re-attaching the CSV
 - reopens anything that was closed and has come back
+- leaves a task that hasn't changed untouched
 
-**Clean-up after fixes.** Rescan once the work is done and export to the same list: subtasks for
-pages that came back clean are closed, and tasks for issues that have gone are closed along with
-their subtasks, each task with a comment saying which crawl showed it. Closed, not deleted — the history stays, and anything that
-comes back is reopened. It only trusts what the rescan actually looked at: a subtask closes only if
-its page was crawled again, and a task only if the crawl covered the whole site, so a rescan that
-was stopped early or capped by a URL limit can't mark unvisited pages fixed. Exporting fewer
-severities than last time leaves the others alone.
+**Clean-up after fixes.** Rescan once the work is done and export again: tasks for what's fixed are
+closed, each with a comment saying which crawl showed it. Closed, not deleted — the history stays,
+and anything that comes back is reopened. It only trusts what the rescan actually looked at: a page's
+task closes only if the page was crawled again, and any other task only if the crawl covered the
+whole site, so a rescan that was stopped early or capped by a URL limit can't mark unvisited pages
+fixed. Exporting fewer lists or severities than last time leaves the others alone. Tasks from
+before this layout (one per issue type, with subtasks) are left as they are, and the result says how
+many are still open.
 
 Nothing is matched on ids stored locally, so it works from a different Mac, and a task somebody
 renamed is simply treated as theirs and left alone.

@@ -5,13 +5,11 @@ import Foundation
 
 /// Preferences that aren't secret, in `settings.json`. Secrets go through `CredentialStore`.
 public struct Settings: Codable, Sendable, Equatable {
-    /// Where each site's issues go in ClickUp, by the site's host: a space and a folder in it.
+    /// Where each site's issues go in ClickUp, by the site's host: a space and a list per topic.
     public var clickUpDestinations: [String: ClickUpDestination] = [:]
     public var clickUpSeverities: [String] = ["error", "warning"]
-    /// Severities filed as one task with a table rather than a subtask per page.
-    public var clickUpTableSeverities: [String] = ["notice"]
-    /// 0 files every affected page as a subtask.
-    public var clickUpSubtaskLimit = 0
+    /// The lists filed, by topic ("links", "errors", …).
+    public var clickUpTopics: [String] = ClickUpTopic.allCases.map(\.rawValue)
     /// Check GitHub for new versions. Off only for development copies.
     public var automaticUpdates = true
 
@@ -22,13 +20,16 @@ public struct Settings: Codable, Sendable, Equatable {
         let d = Settings()
         clickUpDestinations = try c.decodeIfPresent([String: ClickUpDestination].self, forKey: .clickUpDestinations) ?? [:]
         clickUpSeverities = try c.decodeIfPresent([String].self, forKey: .clickUpSeverities) ?? d.clickUpSeverities
-        clickUpTableSeverities = try c.decodeIfPresent([String].self, forKey: .clickUpTableSeverities) ?? d.clickUpTableSeverities
-        clickUpSubtaskLimit = try c.decodeIfPresent(Int.self, forKey: .clickUpSubtaskLimit) ?? d.clickUpSubtaskLimit
+        clickUpTopics = try c.decodeIfPresent([String].self, forKey: .clickUpTopics) ?? d.clickUpTopics
         automaticUpdates = try c.decodeIfPresent(Bool.self, forKey: .automaticUpdates) ?? d.automaticUpdates
     }
 
     static func severities(_ names: [String]) -> Set<IssueSeverity> {
         Set(IssueSeverity.allCases.filter { names.contains($0.name) })
+    }
+
+    static func topics(_ names: [String]) -> Set<ClickUpTopic> {
+        Set(names.compactMap(ClickUpTopic.init(rawValue:)))
     }
 }
 

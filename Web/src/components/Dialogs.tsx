@@ -281,22 +281,48 @@ interface ListChoice {
   listName: string
 }
 
-/** Where one severity goes: a list that's there, or one to make (in a folder, or in the space). */
+/** Where one topic goes: a list that's there, or one to make (in a folder, or in the space). */
 interface ListTarget {
   listID?: string
   folderName: string | null
   listName: string
 }
 
-const listNames: Record<SeverityName, string> = { error: 'Errors', warning: 'Warnings', notice: 'Notices' }
-const standardTarget = (severity: SeverityName): ListTarget => ({ folderName: 'Crawlspace', listName: listNames[severity] })
+/** The lists issues are filed into, in the order the panel shows them. */
+const topics = ['links', 'images', 'siteSettings', 'duplicates', 'speed', 'products', 'errors', 'warnings', 'notices'] as const
+type Topic = (typeof topics)[number]
+const topicNames: Record<Topic, string> = {
+  links: 'Links',
+  images: 'Images',
+  siteSettings: 'Site settings',
+  duplicates: 'Duplicates',
+  speed: 'Speed',
+  products: 'Products',
+  errors: 'Errors',
+  warnings: 'Warnings',
+  notices: 'Notices',
+}
+const topicHints: Record<Topic, string> = {
+  links: 'A task per broken or redirecting URL, with every page linking to it, and per link in the theme.',
+  images: 'A task per image, with every page showing it.',
+  siteSettings: 'A task per setting, such as a security header, rather than per page.',
+  duplicates: 'A task per group of pages sharing a title, description, H1 or content.',
+  speed: 'A task per template Lighthouse measured.',
+  products: 'A task per product page, with what its data is missing.',
+  errors: 'A task per page, with the rest of its errors.',
+  warnings: 'A task per page, with the rest of its warnings.',
+  notices: 'A task per page, with the rest of its notices.',
+}
+const severityNames: Record<SeverityName, string> = { error: 'Errors', warning: 'Warnings', notice: 'Notices' }
+const standardTarget = (topic: Topic): ListTarget => ({ folderName: 'Crawlspace', listName: topicNames[topic] })
 const pathOf = (target: { folderName?: string | null; listName: string }) => [target.folderName, target.listName].filter(Boolean).join(' › ')
 const same = (a?: string | null, b?: string | null) => (a ?? '').trim().toLowerCase() === (b ?? '').trim().toLowerCase()
+const standardTargets = () => Object.fromEntries(topics.map((topic) => [topic, standardTarget(topic)])) as Record<Topic, ListTarget>
 
 /**
- * Files the crawl's issues into ClickUp: choose a space, then where each severity goes, any list
- * in the space or a new one (Crawlspace › Errors, Warnings, Notices by default). Remembered for
- * the site, so a rescan goes to the same places.
+ * Files the crawl's issues into ClickUp, a task per thing to fix: choose a space, then where each
+ * topic goes, any list in the space or a new one (Crawlspace › Links, Images… by default).
+ * Remembered for the site, so a rescan goes to the same places.
  */
 export function ClickUpDialog({ crawlID, onClose }: { crawlID: string; onClose: () => void }) {
   const run = useAction()
@@ -308,17 +334,10 @@ export function ClickUpDialog({ crawlID, onClose }: { crawlID: string; onClose: 
   const [spaces, setSpaces] = useState<SpaceChoice[] | null>(null)
   const [spaceID, setSpaceID] = useState('')
   const [lists, setLists] = useState<ListChoice[] | null>(null)
-  const [targets, setTargets] = useState<Record<SeverityName, ListTarget>>({
-    error: standardTarget('error'),
-    warning: standardTarget('warning'),
-    notice: standardTarget('notice'),
-  })
-  const [remembered, setRemembered] = useState<{ spaceID: string; targets: Partial<Record<SeverityName, ListTarget>> } | null>(null)
+  const [targets, setTargets] = useState<Record<Topic, ListTarget>>(standardTargets)
+  const [remembered, setRemembered] = useState<{ spaceID: string; targets: Partial<Record<Topic, ListTarget>> } | null>(null)
   const [severities, setSeverities] = useState<SeverityName[]>(['error', 'warning'])
-  const [tables, setTables] = useState<SeverityName[]>(['notice'])
-  const [everyPage, setEveryPage] = useState(true)
-  const [cap, setCap] = useState(25)
-  const [attach, setAttach] = useState(true)
+  const [chosen, setChosen] = useState<Topic[]>([...topics])
   const [tag, setTag] = useState('')
   const [plan, setPlan] = useState('')
   const [busy, setBusy] = useState(false)
@@ -332,9 +351,7 @@ export function ClickUpDialog({ crawlID, onClose }: { crawlID: string; onClose: 
       setSettings(settings)
       setHasToken(tokens.some((entry) => entry.kind === 'clickup' && !!entry.masked))
       setSeverities(settings.clickUpSeverities)
-      setTables(settings.clickUpTableSeverities)
-      setEveryPage(settings.clickUpSubtaskLimit <= 0)
-      if (settings.clickUpSubtaskLimit > 0) setCap(settings.clickUpSubtaskLimit)
+      setChosen(topics.filter((topic) => settings.clickUpTopics.includes(topic)))
     })
   }, [])
 
@@ -342,7 +359,7 @@ export function ClickUpDialog({ crawlID, onClose }: { crawlID: string; onClose: 
   const loadSpaces = async () => {
     const [found, saved] = await Promise.all([
       run(() => api.get<SpaceChoice[]>('/api/clickup/spaces')),
-      api.get<{ site: string; destination?: { spaceID: string; spaceName: string; targets: Partial<Record<SeverityName, ListTarget>> } }>(
+      api.get<{ site: string; destination?: { spaceID: string; spaceName: string; targets: Partial<Record<Topic, ListTarget>> } }>(
         `${crawlPath(crawlID)}/clickup/destination`,
       ),
     ])
@@ -366,7 +383,7 @@ export function ClickUpDialog({ crawlID, onClose }: { crawlID: string; onClose: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasToken])
 
-  // A space's lists, and where each severity goes in it: as remembered for this site, else the
+  // A space's lists, and where each topic goes in it: as remembered for this site, else the
   // Crawlspace folder's matching list if it's there, else a new one there.
   useEffect(() => {
     setLists(null)
@@ -376,26 +393,26 @@ export function ClickUpDialog({ crawlID, onClose }: { crawlID: string; onClose: 
       .then((found) => {
         setLists(found)
         const saved = remembered?.spaceID === spaceID ? remembered.targets : {}
-        const pick = (severity: SeverityName): ListTarget => {
-          const previous = saved[severity]
+        const pick = (topic: Topic): ListTarget => {
+          const previous = saved[topic]
           const existing =
             (previous?.listID && found.find((list) => list.id === previous.listID)) ||
             (previous && found.find((list) => same(list.folderName, previous.folderName) && same(list.listName, previous.listName)))
           if (existing) return { listID: existing.id, folderName: existing.folderName ?? null, listName: existing.listName }
           if (previous) return { folderName: previous.folderName, listName: previous.listName }
-          const standard = found.find((list) => same(list.folderName, 'Crawlspace') && same(list.listName, listNames[severity]))
-          return standard ? { listID: standard.id, folderName: 'Crawlspace', listName: standard.listName } : standardTarget(severity)
+          const standard = found.find((list) => same(list.folderName, 'Crawlspace') && same(list.listName, topicNames[topic]))
+          return standard ? { listID: standard.id, folderName: 'Crawlspace', listName: standard.listName } : standardTarget(topic)
         }
-        setTargets({ error: pick('error'), warning: pick('warning'), notice: pick('notice') })
+        setTargets(Object.fromEntries(topics.map((topic) => [topic, pick(topic)])) as Record<Topic, ListTarget>)
       })
       .catch(() => setLists([]))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spaceID])
 
-  const setTarget = (severity: SeverityName, target: ListTarget) => setTargets({ ...targets, [severity]: target })
+  const setTarget = (topic: Topic, target: ListTarget) => setTargets({ ...targets, [topic]: target })
   const space = spaces?.find((entry) => entry.id === spaceID)
   const destination = { spaceID, spaceName: space?.name ?? '', targets }
-  const request = { destination, severities, tableSeverities: tables, subtaskLimit: everyPage ? 0 : cap, attachFullList: attach, extraTag: tag }
+  const request = { destination, severities, topics: chosen, extraTag: tag }
   const requestKey = JSON.stringify(request)
   useEffect(() => {
     if (!settings) return
@@ -419,7 +436,7 @@ export function ClickUpDialog({ crawlID, onClose }: { crawlID: string; onClose: 
     if (answer) setResult(answer.message)
   }
 
-  const toggle = (list: SeverityName[], value: SeverityName, set: (next: SeverityName[]) => void) =>
+  const toggle = <T,>(list: T[], value: T, set: (next: T[]) => void) =>
     set(list.includes(value) ? list.filter((item) => item !== value) : [...list, value])
 
   return (
@@ -435,7 +452,7 @@ export function ClickUpDialog({ crawlID, onClose }: { crawlID: string; onClose: 
           </button>
           <button
             className="primary"
-            disabled={busy || !hasToken || !spaceID || lists === null || !severities.length || severities.some((severity) => !targets[severity].listName.trim())}
+            disabled={busy || !hasToken || !spaceID || lists === null || !severities.length || !chosen.length || chosen.some((topic) => !targets[topic].listName.trim())}
             onClick={exportNow}
           >
             {busy ? 'Filing…' : 'Export to ClickUp'}
@@ -476,15 +493,15 @@ export function ClickUpDialog({ crawlID, onClose }: { crawlID: string; onClose: 
           <fieldset>
             <legend>What to file, and where</legend>
             {spaceID && lists === null && <p className="hint">Reading the lists in {space?.name}…</p>}
-            {(['error', 'warning', 'notice'] as const).map((severity) => {
-              const target = targets[severity]
+            {topics.map((topic) => {
+              const target = targets[topic]
               const isNew = !target.listID
-              const on = severities.includes(severity)
+              const on = chosen.includes(topic)
               return (
-                <div className="severity-row" key={severity}>
-                  <label className="check">
-                    <input type="checkbox" checked={on} onChange={() => toggle(severities, severity, setSeverities)} />
-                    <Severity severity={severity} /> {listNames[severity]}
+                <div className="severity-row" key={topic}>
+                  <label className="check" title={topicHints[topic]}>
+                    <input type="checkbox" checked={on} onChange={() => toggle(chosen, topic, setChosen)} />
+                    {topicNames[topic]}
                   </label>
                   <div className="stack" style={{ gap: 6 }}>
                     <select
@@ -492,9 +509,9 @@ export function ClickUpDialog({ crawlID, onClose }: { crawlID: string; onClose: 
                       value={isNew ? 'new' : target.listID}
                       onChange={(event) => {
                         const value = event.target.value
-                        if (value === 'new') return setTarget(severity, standardTarget(severity))
+                        if (value === 'new') return setTarget(topic, standardTarget(topic))
                         const list = lists?.find((entry) => entry.id === value)
-                        if (list) setTarget(severity, { listID: list.id, folderName: list.folderName ?? null, listName: list.listName })
+                        if (list) setTarget(topic, { listID: list.id, folderName: list.folderName ?? null, listName: list.listName })
                       }}
                     >
                       {lists?.map((list) => (
@@ -510,7 +527,7 @@ export function ClickUpDialog({ crawlID, onClose }: { crawlID: string; onClose: 
                           type="text"
                           placeholder="Folder (blank for none)"
                           value={target.folderName ?? ''}
-                          onChange={(event) => setTarget(severity, { ...target, folderName: event.target.value || null })}
+                          onChange={(event) => setTarget(topic, { ...target, folderName: event.target.value || null })}
                           style={{ width: 150 }}
                         />
                         <span className="hint">›</span>
@@ -518,11 +535,12 @@ export function ClickUpDialog({ crawlID, onClose }: { crawlID: string; onClose: 
                           type="text"
                           placeholder="List"
                           value={target.listName}
-                          onChange={(event) => setTarget(severity, { ...target, listName: event.target.value })}
+                          onChange={(event) => setTarget(topic, { ...target, listName: event.target.value })}
                           style={{ flex: 1 }}
                         />
                       </div>
                     )}
+                    {on && <span className="hint">{topicHints[topic]}</span>}
                     {on && isNew && spaceID && lists !== null && (
                       <span className="hint">
                         Made in {space?.name} when you export
@@ -533,33 +551,19 @@ export function ClickUpDialog({ crawlID, onClose }: { crawlID: string; onClose: 
                       </span>
                     )}
                   </div>
-                  <div className="segmented">
-                    <button disabled={!on} className={!tables.includes(severity) ? 'on' : ''} onClick={() => setTables(tables.filter((item) => item !== severity))}>
-                      Subtasks
-                    </button>
-                    <button disabled={!on} className={tables.includes(severity) ? 'on' : ''} onClick={() => !tables.includes(severity) && setTables([...tables, severity])}>
-                      Table
-                    </button>
-                  </div>
                 </div>
               )
             })}
           </fieldset>
-          <label className="check">
-            <input type="checkbox" checked={everyPage} onChange={(event) => setEveryPage(event.target.checked)} />
-            Every affected page as a subtask
-          </label>
-          {!everyPage && (
-            <div className="row wrap">
-              <span>Subtasks for the</span>
-              <input type="number" min={5} max={500} value={cap} onChange={(event) => setCap(Number(event.target.value))} />
-              <span>most-linked pages</span>
-              <label className="check">
-                <input type="checkbox" checked={attach} onChange={(event) => setAttach(event.target.checked)} />
-                Attach the rest as a CSV
+          <div className="row wrap">
+            <span>Include</span>
+            {(['error', 'warning', 'notice'] as const).map((severity) => (
+              <label className="check" key={severity}>
+                <input type="checkbox" checked={severities.includes(severity)} onChange={() => toggle(severities, severity, setSeverities)} />
+                <Severity severity={severity} /> {severityNames[severity]}
               </label>
-            </div>
-          )}
+            ))}
+          </div>
           <label className="field">
             <span>Extra tag (optional)</span>
             <input type="text" value={tag} onChange={(event) => setTag(event.target.value)} />

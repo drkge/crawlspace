@@ -173,16 +173,16 @@ struct MiscRoutes {
         router.post("api/crawls/:id/clickup/plan") { request, context in
             let options = try await request.decodeJSON(ClickUpRequest.self, context: context)
             let store = try await library.session(context.parameters.string("id")).store
-            return JSON(MessageDTO(message: ClickUpPlan.describe(counts: try store.issueCounts(), request: options)))
+            return JSON(MessageDTO(message: try ClickUpPlan.describe(store: store, request: options)))
         }
 
         router.post("api/crawls/:id/clickup/export") { request, context in
             let body = try await request.decodeJSON(ClickUpRequest.self, context: context)
             let destination = body.destination
             guard !destination.spaceID.isEmpty else { throw ServerError.badRequest("Choose a space to file into.") }
-            for severity in Settings.severities(body.severities)
-            where destination.target(for: severity).listName.trimmingCharacters(in: .whitespaces).isEmpty {
-                throw ServerError.badRequest("Give the \(severity.label.lowercased()) a list to go into.")
+            for topic in Settings.topics(body.topics)
+            where destination.target(for: topic).listName.trimmingCharacters(in: .whitespaces).isEmpty {
+                throw ServerError.badRequest("Give \(topic.label) a list to go into.")
             }
             let client = try clickUp()
             let session = try await library.session(context.parameters.string("id"))
@@ -190,16 +190,13 @@ struct MiscRoutes {
             _ = try SettingsStore.update {
                 $0.clickUpDestinations[site] = destination
                 $0.clickUpSeverities = body.severities
-                $0.clickUpTableSeverities = body.tableSeverities
-                $0.clickUpSubtaskLimit = body.subtaskLimit
+                $0.clickUpTopics = body.topics
             }
             let options = ClickUpExportOptions(
                 listID: "",
                 severities: Settings.severities(body.severities),
-                subtaskLimit: body.subtaskLimit,
-                attachFullList: body.attachFullList,
-                extraTags: body.extraTag.isEmpty ? [] : [body.extraTag],
-                tableSeverities: Settings.severities(body.tableSeverities)
+                topics: Settings.topics(body.topics),
+                extraTags: body.extraTag.isEmpty ? [] : [body.extraTag]
             )
             let store = session.store
             let events = session.events
@@ -209,7 +206,7 @@ struct MiscRoutes {
                     events.publish("clickup", ClickUpProgress(title: title, fraction: fraction))
                 }
             }
-            let places = IssueSeverity.allCases.compactMap { resolved.paths[$0] }.joined(separator: ", ")
+            let places = ClickUpTopic.allCases.compactMap { resolved.paths[$0] }.joined(separator: ", ")
             var message = "Filed into \(destination.spaceName) (\(places)): \(result.summary)."
             if !resolved.created.isEmpty {
                 message += " Made " + ListFormatter.localizedString(byJoining: resolved.created) + "."
@@ -325,47 +322,27 @@ struct MiscRoutes {
     }
 }
 
-/// What the ClickUp panel sends: where to file, and how.
+/// What the ClickUp panel sends: where to file, and what.
 struct ClickUpRequest: Decodable, Sendable {
     var destination: ClickUpDestination
     var severities: [String]
-    var tableSeverities: [String]
-    var subtaskLimit: Int
-    var attachFullList: Bool
+    var topics: [String]
     var extraTag: String
 }
 
 /// How much an export is about to create and how long ClickUp will take to accept it, so nobody
-/// finds out afterwards. The same split the exporter makes.
+/// finds out afterwards. The same tasks the exporter files, worked out the same way.
 enum ClickUpPlan {
-    static func describe(counts: [String: Int], request: ClickUpRequest) -> String {
-        let severities = Settings.severities(request.severities)
-        let tableSeverities = Settings.severities(request.tableSeverities)
-        let limit = request.subtaskLimit
-        let chosen = IssueCatalogue.all.filter { severities.contains($0.severity) && (counts[$0.code] ?? 0) > 0 }
-        guard !chosen.isEmpty else { return "Nothing to file at these severities." }
-
-        let affected = chosen.reduce(0) { $0 + (counts[$1.code] ?? 0) }
-        let isTable = { (definition: IssueDefinition) in tableSeverities.contains(definition.severity) }
-        let tables = chosen.filter(isTable).count
-        let filed = chosen.filter { !isTable($0) }.map { definition in
-            let count = counts[definition.code] ?? 0
-            return limit <= 0 ? count : min(limit, count)
-        }
-        let subtasks = filed.reduce(0, +)
-        // ClickUp takes 1,000 subtasks under one task; past that an issue carries on in "(part 2)".
-        let tasks = chosen.count + filed.reduce(0) { $0 + max(0, ($1 + 999) / 1_000 - 1) }
-        let csvs = chosen.filter { definition in
-            let count = counts[definition.code] ?? 0
-            return isTable(definition) ? count > 200 : (limit > 0 && count > limit)
-        }.count
-
-        var parts = ["\(tasks) tasks"]
-        if subtasks > 0 { parts.append("\(subtasks.formatted()) subtasks") }
-        if tables > 0 { parts.append("\(tables) as \(tables == 1 ? "a table" : "tables")") }
-        if request.attachFullList, csvs > 0 { parts.append("\(csvs) CSV \(csvs == 1 ? "attachment" : "attachments")") }
-        var text = parts.joined(separator: ", ") + " — covering \(affected.formatted()) affected URLs."
-        if let duration = estimate(requests: tasks + subtasks + csvs + 2) {
+    static func describe(store: CrawlStore, request: ClickUpRequest) throws -> String {
+        let topics = Settings.topics(request.topics)
+        let units = try ClickUpUnitBuilder.units(store: store, severities: Settings.severities(request.severities), topics: topics)
+        guard !units.isEmpty else { return "Nothing to file at these severities." }
+        let lists = Set(units.map(\.topic)).count
+        let csvs = units.filter { !$0.countsIssues && $0.pages.count > 200 }.count
+        var text = "\(units.count.formatted()) \(units.count == 1 ? "task" : "tasks") across \(lists) \(lists == 1 ? "list" : "lists")"
+        if csvs > 0 { text += ", \(csvs) CSV \(csvs == 1 ? "attachment" : "attachments")" }
+        text += "."
+        if let duration = estimate(requests: units.count + csvs + 2 * lists) {
             text += " About \(duration) on ClickUp's smallest plan, quicker on the larger ones."
         }
         return text

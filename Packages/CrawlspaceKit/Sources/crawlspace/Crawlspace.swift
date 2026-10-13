@@ -548,19 +548,22 @@ struct ClickUpLists: AsyncParsableCommand {
 struct ClickUpExport: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "clickup",
-        abstract: "File a crawl's issues into ClickUp: a task per issue, subtasks for the pages."
+        abstract: "File a crawl's issues into ClickUp: one task per thing to fix.",
+        discussion: """
+            With --space, links, images, site settings, duplicates, speed, products and the pages \
+            left over each go into their own list in a Crawlspace folder, made if it isn't there. \
+            With --list, everything goes into that one list.
+            """
     )
 
     @Argument(help: "Path to a .crawlspace package.") var package: String
-    @Option(help: "List id to file into. Find one with clickup-lists.") var list: String
+    @Option(help: "List id to file everything into. Find one with clickup-lists.") var list: String?
+    @Option(help: "Space id to file into, a list per topic in its Crawlspace folder.") var space: String?
     @Option(help: "Which severities to export: error, warning, notice (comma separated).")
     var severities: String = "error,warning"
-    @Option(help: "Most subtasks per issue. 0, the default, files every affected page.")
-    var cap: Int = 0
-    @Flag(help: "Don't attach the CSV of everything the cap left out.") var noAttachment = false
+    @Option(help: "Which lists to file: \(ClickUpTopic.allCases.map(\.rawValue).joined(separator: ", ")) (comma separated). Defaults to all.")
+    var topics: String?
     @Option(help: "Extra tag to put on every task. Repeatable.") var tag: [String] = []
-    @Option(help: "Severities filed as one task with a table of URLs instead of subtasks (comma separated, or none).")
-    var tables: String = "notice"
     @OptionGroup var clickUp: ClickUpOptions
 
     mutating func run() async throws {
@@ -569,19 +572,32 @@ struct ClickUpExport: AsyncParsableCommand {
         guard !chosen.isEmpty else {
             throw ValidationError("--severities takes any of error, warning, notice.")
         }
+        var lists = Set(ClickUpTopic.allCases)
+        if let topics {
+            let names = topics.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+            lists = Set(names.compactMap(ClickUpTopic.init(rawValue:)))
+            guard lists.count == names.count else {
+                throw ValidationError("--topics takes any of \(ClickUpTopic.allCases.map(\.rawValue).joined(separator: ", ")).")
+            }
+        }
+        guard (list == nil) != (space == nil) else { throw ValidationError("Give either --list or --space.") }
 
         let store = try CrawlStore.open(at: URL(filePath: package))
-        let tableNames = tables.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
-        let asTables = Set(IssueSeverity.allCases.filter { tableNames.contains($0.name) })
-        let options = ClickUpExportOptions(listID: list, severities: chosen, subtaskLimit: cap,
-                                           attachFullList: !noAttachment, extraTags: tag, tableSeverities: asTables)
-        let result = try await ClickUpExporter.export(store: store, options: options,
-                                                      client: try clickUp.client()) { title, _ in
-            print("  \(title)")
-        }
-        print("Filed \(result.summary) into list \(list).")
-        if result.urlsInAttachments > 0 {
-            print("\(result.urlsCovered.formatted()) URLs as subtasks, \(result.urlsInAttachments.formatted()) in CSVs.")
+        let options = ClickUpExportOptions(listID: list ?? "", severities: chosen, topics: lists, extraTags: tag)
+        let client = try clickUp.client()
+        if let list {
+            let result = try await ClickUpExporter.export(store: store, options: options, client: client) { title, _ in
+                print("  \(title)")
+            }
+            print("Filed into list \(list): \(result.summary).")
+        } else if let space {
+            let destination = ClickUpDestination(spaceID: space, spaceName: "space \(space)")
+            let (result, resolved) = try await ClickUpFolderExport.export(store: store, destination: destination,
+                                                                          options: options, client: client) { title, _ in
+                print("  \(title)")
+            }
+            let places = ClickUpTopic.allCases.compactMap { resolved.paths[$0] }.joined(separator: ", ")
+            print("Filed into \(places): \(result.summary).")
         }
     }
 }
