@@ -56,7 +56,7 @@ public enum ClickUpTopic: String, CaseIterable, Codable, Sendable {
     public static func topic(for definition: IssueDefinition) -> ClickUpTopic {
         let code = definition.code
         if ClickUpUnitBuilder.targetCodes[code] != nil || ClickUpUnitBuilder.linkSourceCodes.contains(code)
-            || ClickUpUnitBuilder.linkAttributeCodes.contains(code) { return .links }
+            || ClickUpUnitBuilder.linkAttributeCodes.contains(code) || code == ClickUpUnitBuilder.productCardCode { return .links }
         if definition.category == .images { return .images }
         if definition.category == .security || definition.category == .sitemaps
             || ClickUpUnitBuilder.settingCodes.contains(code) { return .siteSettings }
@@ -85,6 +85,9 @@ public struct ClickUpUnit: Sendable, Hashable {
         case template(String)
         /// A page and its own issues.
         case page(Int64)
+        /// Product cards linking through a collection's address: one snippet in the theme, however
+        /// many products and pages it reaches.
+        case productCards
     }
 
     public var topic: ClickUpTopic
@@ -132,6 +135,19 @@ public enum ClickUpUnitBuilder {
     static let linkSourceCodes = Set(targetCodes.values.compactMap { $0 })
     static let brokenCodes: Set = ["response_internal_4xx", "response_internal_5xx", "response_internal_no_response",
                                    "response_external_broken"]
+
+    /// Pages linking to products at a collection's address, which is the product card's doing.
+    static let productCardCode = "ecom_links_to_duplicate_product"
+    /// Issues on a URL that are only its redirect, which a collection's product address has when
+    /// the store sends it on to the product's own.
+    static let redirectCodes: Set = ["response_internal_3xx", "redirect_chain"]
+
+    /// /collections/x/products/y on the crawled site: where a product card sends people when it
+    /// builds its link inside the collection.
+    static func isCollectionProduct(_ address: String, site: String) -> Bool {
+        guard let url = URL(string: address), url.host() == site else { return false }
+        return EcommercePaths.product(in: url)?.collectionScoped == true
+    }
 
     /// Issues with a link itself, rather than where it leads.
     static let linkAttributeCodes: Set = ["links_internal_nofollow", "links_non_descriptive_anchor"]
@@ -220,6 +236,32 @@ public enum ClickUpUnitBuilder {
             for (code, ids) in byCode where targetCodes[code] != nil && wanted(code, in: .links) {
                 claimed.insert(code)
                 for id in ids { targets[id, default: []].append(code) }
+            }
+            // A collection's product addresses that redirect to the product's own are the product
+            // card's doing, as are pages flagged for linking to them: one task for the lot.
+            var cardTargets: [Int64] = []
+            var cardCodes: Set<String> = []
+            for (id, codes) in targets where codes.allSatisfy(redirectCodes.contains) && isCollectionProduct(urls[id].url, site: site) {
+                cardTargets.append(id)
+                cardCodes.formUnion(codes)
+                targets[id] = nil
+            }
+            let flagged = wanted(productCardCode, in: .links) ? byCode[productCardCode] ?? [] : []
+            claimed.insert(productCardCode)
+            if !cardTargets.isEmpty || !flagged.isEmpty {
+                var linkers = Set(flagged)
+                for chunk in cardTargets.chunked(900) {
+                    linkers.formUnion(try Int64.fetchAll(db, sql: """
+                        SELECT DISTINCT source_id FROM links WHERE type = \(LinkType.anchor.rawValue)
+                          AND target_id IN (\(chunk.map { _ in "?" }.joined(separator: ",")))
+                        """, arguments: StatementArguments(chunk)))
+                }
+                var codes = cardCodes
+                if !cardTargets.isEmpty, byCode["links_to_redirect_internal"] != nil { codes.insert("links_to_redirect_internal") }
+                if !flagged.isEmpty { codes.insert(productCardCode) }
+                units.append(ClickUpUnit(topic: .links, kind: .productCards, name: "Product cards: links through collection addresses",
+                                         severity: worst(Array(codes)), codes: sorted(codes), pages: try byInlinks(linkers),
+                                         counts: ["addresses": cardTargets.count]))
             }
             for (id, codes) in targets {
                 let linkers = try Int64.fetchAll(db, sql: "SELECT DISTINCT source_id FROM links WHERE target_id = ?", arguments: [id])
@@ -563,6 +605,35 @@ public enum ClickUpUnitBuilder {
             parts.append("**Measured as the store's \(template) page.** Every \(template.lowercased()) page is built from the theme's "
                 + "\(template.lowercased()) template, so fix it there, once.")
             for row in pageRows { parts.append(try pageIssues(row.id, url: row.url, unit: unit, store: store, site: site, heading: true)) }
+
+        case .productCards:
+            let addresses = unit.counts["addresses"] ?? 0
+            var lead = "**\(unit.pages.count.formatted()) \(unit.pages.count == 1 ? "page links" : "pages link") to products through a collection's address** "
+                + "(/collections/…/products/…) rather than the product's own (/products/…)."
+            if addresses > 0 {
+                lead += " \(addresses.formatted()) of those \(addresses == 1 ? "address redirects" : "addresses redirect") to the product's own, "
+                    + "so every click, and every visit from a search engine, takes an extra hop."
+            }
+            parts.append(lead)
+            parts.append("**It's one change.** The links come from the theme's product card, the snippet every collection and "
+                + "product page uses to show a product. Make it link to the product's own address and every page listed "
+                + "here clears at once. On Shopify the card usually builds the link with `product.url | within: collection`: "
+                + "drop `| within: collection`.")
+            if addresses > 0 {
+                let examples = try store.pool.read { db in
+                    try Row.fetchAll(db, sql: """
+                        SELECT u.url, u.redirect_url FROM issues i JOIN urls u ON u.id = i.url_id
+                        WHERE i.code IN ('response_internal_3xx', 'redirect_chain') AND u.url LIKE '%/collections/%/products/%'
+                        GROUP BY u.id ORDER BY u.inlinks DESC, u.url LIMIT 10
+                        """)
+                }
+                parts.append((["**For example**", "", "| Linked as | Goes to |", "|---|---|"] + examples.map { row in
+                    let from: String = row[0]
+                    let to: String? = row[1]
+                    return "| \(link(from)) | \(to.map(link) ?? "") |"
+                }).joined(separator: "\n"))
+            }
+            parts.append(plainTable("Pages with these links"))
 
         case .page(let id):
             guard let row = pageRows.first else { break }
