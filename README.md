@@ -133,6 +133,13 @@ of the site updates it. Each fix is one change: a broken
 address and every link to it, an image file, a setting, a page and its issues, and so on, each with
 what's wrong where and how to fix it.
 
+**Change patterns.** Broken and redirecting addresses that changed for the same reason are one fix,
+not one per address: removed pages all sent to the home page, "®" or a "-1" taken out of handles, a
+blog moved from /blog to /blogs/blog, links to products by number instead of handle, deleted products
+still in collections, and a theme snippet writing a Liquid error into its links. Each lists its
+addresses, where they're linked from, and the one thing to change. It takes three addresses sharing
+a reason to make a pattern — a theme error counts even once — and anything else keeps its own fix.
+
 Tick a fix once it's done, then **Check**: Crawlspace crawls just the pages involved — the page, the
 broken address and the pages linking to it, or ten pages that carry a change made in the theme — and
 confirms each ticked fix, or marks it *still there*. It takes seconds rather than a full crawl, and

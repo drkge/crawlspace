@@ -133,6 +133,8 @@ public struct ClickUpUnit: Sendable, Hashable {
         /// Product cards linking through a collection's address: one snippet in the theme, however
         /// many products and pages it reaches.
         case productCards
+        /// Broken or redirecting addresses that changed for the same reason; `members` holds them.
+        case pattern(ChangePatterns.Kind)
     }
 
     public var topic: ClickUpTopic
@@ -404,6 +406,43 @@ public enum ClickUpUnitBuilder {
                 units.append(ClickUpUnit(topic: .links, kind: .productCards, name: "Product cards: links through collection addresses",
                                          severity: worst(Array(codes)), codes: sorted(codes), pages: try byInlinks(linkers),
                                          counts: ["addresses": cardTargets.count, "copies": servedCopies.count]))
+            }
+            // Addresses on the site that broke or moved for the same reason: one task for the reason.
+            var addresses: [ChangePatterns.Address] = []
+            for chunk in Array(targets.keys).chunked(900) {
+                let rows = try Row.fetchAll(db, sql: """
+                    SELECT id, url, status_code, redirect_url, is_internal FROM urls
+                    WHERE id IN (\(chunk.map { _ in "?" }.joined(separator: ",")))
+                    """, arguments: StatementArguments(chunk))
+                for row in rows {
+                    let (id, address, status, redirect, isInternal): (Int64, String, Int?, String?, Bool) = (row[0], row[1], row[2], row[3], row[4])
+                    guard isInternal, let url = URL(string: address), url.host() == site else { continue }
+                    let path = url.path() + (url.query().map { "?\($0)" } ?? "")
+                    let destination = redirect.flatMap(URL.init(string:)).flatMap { target -> String? in
+                        guard target.host() == nil || target.host() == site else { return nil }
+                        return target.path() + (target.query().map { "?\($0)" } ?? "")
+                    }
+                    addresses.append(ChangePatterns.Address(id: id, path: path, status: status, redirect: destination))
+                }
+            }
+            for pattern in ChangePatterns.find(addresses) {
+                var codes: Set<String> = []
+                for member in pattern.members {
+                    codes.formUnion(targets[member] ?? [])
+                    targets[member] = nil
+                }
+                for code in codes { if let paired = targetCodes[code] ?? nil, byCode[paired] != nil { codes.insert(paired) } }
+                var linkers: Set<Int64> = []
+                for chunk in pattern.members.chunked(900) {
+                    linkers.formUnion(try Int64.fetchAll(db, sql: """
+                        SELECT DISTINCT source_id FROM links WHERE target_id IN (\(chunk.map { _ in "?" }.joined(separator: ",")))
+                        """, arguments: StatementArguments(chunk)))
+                }
+                try urls.load(Set(pattern.members), db: db)
+                units.append(ClickUpUnit(topic: .links, kind: .pattern(pattern.kind), name: ChangePatterns.name(of: pattern.kind),
+                                         severity: worst(Array(codes)), codes: sorted(codes), pages: try byInlinks(linkers),
+                                         counts: ["addresses": pattern.members.count],
+                                         members: pattern.members.sorted { urls[$0].url < urls[$1].url }))
             }
             for (id, codes) in targets {
                 let linkers = try Int64.fetchAll(db, sql: "SELECT DISTINCT source_id FROM links WHERE target_id = ?", arguments: [id])
@@ -822,7 +861,7 @@ public enum ClickUpUnitBuilder {
             "[\(ClickUpExporter.cell(ClickUpExporter.pageName(for: url, site: site)))](\(ClickUpExporter.linkTarget(url)))"
         }
         func heading(_ count: Int, _ what: String) -> String {
-            "**\(what)**" + (count > shown.count ? " — the first \(shown.count.formatted()) of \(count.formatted()), all in the attached CSV" : "")
+            "**\(what)**" + (count > shown.count ? " — the first \(shown.count.formatted()) of \(count.formatted()), most linked-to first" : "")
         }
         func plainTable(_ title: String) -> String {
             ([heading(unit.pages.count, title), "", "| Page |", "|---|"] + pageRows.map { "| \(link($0.url)) |" })
@@ -945,6 +984,25 @@ public enum ClickUpUnitBuilder {
                 + "\(template.lowercased()) template, so fix it there, once.")
             for row in pageRows { parts.append(try pageIssues(row.id, url: row.url, unit: unit, store: store, site: site, heading: true)) }
 
+        case .pattern(let kind):
+            let (what, fix) = ChangePatterns.explanation(of: kind)
+            parts.append("**\(unit.members.count.formatted()) addresses, linked from \(unit.pages.count.formatted()) "
+                + "\(unit.pages.count == 1 ? "page" : "pages").** \(what)")
+            parts.append("**How to fix:** \(fix)")
+            let members = try store.rows(ids: Array(unit.members.prefix(rows)))
+            let linked = try store.pool.read { db in
+                Dictionary(uniqueKeysWithValues: try members.map { member in
+                    (member.id, try Int.fetchOne(db, sql: "SELECT COUNT(DISTINCT source_id) FROM links WHERE target_id = ?",
+                                                 arguments: [member.id]) ?? 0)
+                })
+            }
+            parts.append((["**The addresses**", "", "| Address | Answers | Linked from |", "|---|---|---|"] + members.map { member in
+                let answer = member.redirectURL.map { "\(member.statusCode.map(String.init) ?? "") → \(link($0))" }
+                    ?? IssueEvidenceBuilder.statusText(member.statusCode, member.error)
+                return "| \(link(member.url)) | \(answer) | \((linked[member.id] ?? 0).formatted()) |"
+            }).joined(separator: "\n"))
+            if !unit.pages.isEmpty { parts.append(plainTable("Pages linking to them")) }
+
         case .productCards:
             let addresses = unit.counts["addresses"] ?? 0
             var lead = "**\(unit.pages.count.formatted()) \(unit.pages.count == 1 ? "page links" : "pages link") to products through a collection's address** "
@@ -1014,7 +1072,7 @@ public enum ClickUpUnitBuilder {
             }
             parts.append("**How to fix:** \(evidence.fix)")
             let more = subtask.pages.count > shown.count
-                ? " — the first \(shown.count.formatted()) of \(subtask.pages.count.formatted()), all in the attached CSV" : ""
+                ? " — the first \(shown.count.formatted()) of \(subtask.pages.count.formatted()), most linked-to first" : ""
             parts.append((["**Pages**\(more)", "", "| Page |", "|---|"] + shown.map {
                 "| [\(ClickUpExporter.cell(ClickUpExporter.pageName(for: $0.url, site: site)))](\(ClickUpExporter.linkTarget($0.url))) |"
             }).joined(separator: "\n"))

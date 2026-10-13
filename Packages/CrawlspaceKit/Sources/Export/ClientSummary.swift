@@ -91,7 +91,8 @@ public enum ClientSummaryBuilder {
                 guard let definition = IssueCatalogue.definition(for: code) else { continue }
                 var kind = byCode[code] ?? Kind(code: code, severity: severity(of: definition),
                                                 area: area(of: definition, in: unit.topic))
-                kind.items += 1
+                // A pattern stands for each of its addresses.
+                if case .pattern = unit.kind { kind.items += unit.counts["addresses"] ?? 1 } else { kind.items += 1 }
                 kind.pages.formUnion(unit.pages)
                 kind.siteWide = kind.siteWide && siteWide
                 byCode[code] = kind
