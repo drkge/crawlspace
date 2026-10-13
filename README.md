@@ -157,6 +157,11 @@ they're left out of duplicate groups. Collection copies of products (`/collectio
 counted in the product-card task and go when it's fixed. Lists from an earlier Shopify export by severity
 (Errors, Warnings, Notices) are no longer updated: archive them after the first export.
 
+One problem measured two ways is one item: a title over 60 characters and over 561 pixels is one
+*Page Titles: Too Long* with both measurements and one fix, and the same goes for a meta description
+over 155 characters and 985 pixels, and a page that's both noindex and nofollow. On a site filed by
+severity the pair goes into the list for the worse of the two, not one into each.
+
 A link counts as part of the theme when it's on ten or more pages, or on several in the navigation,
 header, footer or sidebar; its task says so (*Start here: 312 of these 340 pages carry it in the
 footer*). Each task lists what's wrong, where, and how to fix it, with a table of the pages it

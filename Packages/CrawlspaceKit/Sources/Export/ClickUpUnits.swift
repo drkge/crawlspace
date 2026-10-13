@@ -177,6 +177,9 @@ public struct ClickUpSubtask: Sendable, Hashable {
     public var severity: IssueSeverity
     /// The pages it's on, most linked-to first.
     public var pages: [Int64]
+    /// The other half of a pair measured two ways, filed with it as one: a title over 60 characters
+    /// and over 561 pixels is one title to shorten.
+    public var also: [String] = []
 }
 
 /// Works out the units a crawl's issues come to, and writes each one's task.
@@ -253,6 +256,38 @@ public enum ClickUpUnitBuilder {
         "javascript_title_changed", "javascript_meta_description_changed", "javascript_canonical_changed",
         "links_no_internal_outlinks",
     ]
+    /// Issues that are one problem measured two ways, or set by one tag: on the same page, one
+    /// subtask and one fix. The first of each is the worse, and names the problem.
+    static let measuredPairs: [(primary: String, other: String, name: String)] = [
+        ("title_over_561_pixels", "title_over_60_characters", "Page Titles: Too Long"),
+        ("meta_description_over_985_pixels", "meta_description_over_155_characters", "Meta Description: Too Long"),
+        ("directives_noindex", "directives_nofollow", "Directives: Noindex and Nofollow"),
+    ]
+
+    /// The pair a code belongs to, if any.
+    static func pair(of code: String) -> (primary: String, other: String, name: String)? {
+        measuredPairs.first { $0.primary == code || $0.other == code }
+    }
+
+    /// Subtasks for issues, a pair measured two ways as one where both are there.
+    static func subtasks(for codes: [String], pages: (String) -> [Int64], severity: (String) -> IssueSeverity) -> [ClickUpSubtask] {
+        var result: [ClickUpSubtask] = []
+        var done: Set<String> = []
+        for code in codes where !done.contains(code) {
+            if let pair = pair(of: code), codes.contains(pair.primary), codes.contains(pair.other) {
+                done.formUnion([pair.primary, pair.other])
+                let first = pages(pair.primary)
+                let together = first + pages(pair.other).filter { !first.contains($0) }
+                result.append(ClickUpSubtask(name: pair.name, code: pair.primary, severity: min(severity(pair.primary), severity(pair.other)),
+                                             pages: together, also: [pair.other]))
+            } else {
+                done.insert(code)
+                result.append(ClickUpSubtask(name: title(code), code: code, severity: severity(code), pages: pages(code)))
+            }
+        }
+        return result
+    }
+
     /// The share of a template's pages an issue has to be on to count as the template's.
     static let templateShare = 0.8
 
@@ -565,6 +600,19 @@ public enum ClickUpUnitBuilder {
                 guard topic == .products || topic.pageSeverity != nil, wanted(code, in: topic) else { continue }
                 for id in ids { perPage[topic, default: [:]][id, default: []].append(code) }
             }
+            // A pair measured two ways can straddle two severities: a title over 561 pixels is a
+            // warning, over 60 characters a notice. On the same page it's one title, so the milder
+            // half goes in with the worse, into its list.
+            for pair in measuredPairs {
+                guard let primary = lookup(pair.primary), let other = lookup(pair.other) else { continue }
+                let (to, from) = (ClickUpTopic.topic(for: primary), ClickUpTopic.topic(for: other))
+                guard to != from, let pages = perPage[from] else { continue }
+                for (page, codes) in pages where codes.contains(pair.other) && perPage[to]?[page]?.contains(pair.primary) == true {
+                    perPage[from]?[page]?.removeAll { $0 == pair.other }
+                    if perPage[from]?[page]?.isEmpty == true { perPage[from]?[page] = nil }
+                    perPage[to]?[page]?.append(pair.other)
+                }
+            }
             for (topic, pages) in perPage {
                 for (page, codes) in pages {
                     units.append(ClickUpUnit(topic: topic, kind: .page(page), name: pageName(page),
@@ -658,10 +706,9 @@ public enum ClickUpUnitBuilder {
             guard topics.contains(topic) else { continue }
             let all = ordered(issues.keys)
             let chosen = all.filter { severities.contains(severity($0)) }
-            var subtasks: [ClickUpSubtask] = []
-            for code in chosen {
-                subtasks.append(ClickUpSubtask(name: title(code), code: code, severity: severity(code), pages: try byInlinks(issues[code] ?? [])))
-            }
+            var pagesOf: [String: [Int64]] = [:]
+            for code in chosen { pagesOf[code] = try byInlinks(issues[code] ?? []) }
+            let subtasks = Self.subtasks(for: chosen, pages: { pagesOf[$0] ?? [] }, severity: severity)
             units.append(ClickUpUnit(topic: topic, kind: .template(template), name: "\(template) template",
                                      severity: severity((chosen.isEmpty ? all : chosen)[0]), codes: chosen,
                                      pages: try byInlinks(issues.values.joined()), subtasks: subtasks, heldOpen: chosen.isEmpty))
@@ -706,7 +753,7 @@ public enum ClickUpUnitBuilder {
             let pages = entry.members.filter { member in codesOn.values.contains { $0.contains(member) } }
             units.append(ClickUpUnit(topic: topic, kind: .page(entry.id), name: ClickUpExporter.pageName(for: entry.address, site: site),
                                      severity: severity((chosen.isEmpty ? all : chosen)[0]), codes: chosen, pages: pages,
-                                     subtasks: chosen.map { ClickUpSubtask(name: title($0), code: $0, severity: severity($0), pages: codesOn[$0] ?? []) },
+                                     subtasks: Self.subtasks(for: chosen, pages: { codesOn[$0] ?? [] }, severity: severity),
                                      heldOpen: chosen.isEmpty))
         }
         return units
@@ -960,6 +1007,7 @@ public enum ClickUpUnitBuilder {
             let evidence = try IssueEvidenceBuilder.evidence(for: subtask.code, urlID: first, store: store)
             var parts = ["**On \(subtask.pages.count.formatted()) \(template.lowercased()) pages**, so it's the theme's \(template.lowercased()) template to fix, once."]
             if let definition = IssueCatalogue.definition(for: subtask.code) { parts.append(definition.description) }
+            for other in subtask.also { parts.append("Also flagged as *\(title(other))*: the same problem, measured another way.") }
             if !evidence.items.isEmpty {
                 parts.append("**On \(ClickUpExporter.pageName(for: shown.first?.url ?? "", site: site)), for example**"
                     + evidence.items.prefix(5).map { "\n- \($0.text)" }.joined())
@@ -974,7 +1022,7 @@ public enum ClickUpUnitBuilder {
         }
         let url = try store.row(id: first)?.url ?? ""
         var single = unit
-        single.codes = [subtask.code]
+        single.codes = [subtask.code] + subtask.also
         var text = try pageIssues(first, url: url, unit: single, store: store, site: site, heading: false)
         if subtask.pages.count > 1 {
             let others = try store.rows(ids: Array(subtask.pages.dropFirst().prefix(rows)))
@@ -1001,12 +1049,21 @@ public enum ClickUpUnitBuilder {
         let codes = Set(try store.issueCodes(for: id))
         var text = heading ? "### \(link)" : "**\(link)**"
         for code in unit.codes where codes.contains(code) {
+            // A pair measured two ways is one problem: shown once, under the worse, with both
+            // measurements and one fix.
+            let pair = pair(of: code).flatMap { codes.contains($0.primary) && codes.contains($0.other)
+                && unit.codes.contains($0.primary) && unit.codes.contains($0.other) ? $0 : nil }
+            if let pair, code == pair.other { continue }
             var evidence = try IssueEvidenceBuilder.evidence(for: code, urlID: id, store: store)
+            if let pair {
+                let other = try IssueEvidenceBuilder.evidence(for: pair.other, urlID: id, store: store)
+                evidence.items += other.items.filter { item in !evidence.items.contains { $0.text == item.text } }
+            }
             // Links in the theme have tasks of their own.
             if unit.topic == .links {
                 evidence.items.removeAll { isTheme(pages: $0.pagesWithSameLink ?? 1, positions: [$0.position ?? .unknown]) }
             }
-            text += "\n\n**\(title(code))**"
+            text += "\n\n**\(pair?.name ?? title(code))**"
             text += evidence.items.map { item in
                 var line = "\n- \(item.text)"
                 if let position = item.position { line += " — in the \(position.label.lowercased())" }
