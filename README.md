@@ -136,7 +136,7 @@ a list of its own, in a Crawlspace folder in the space you choose:
 | List | One task per |
 |---|---|
 | **Links** | URL that is broken, redirects or couldn't be checked, with every page linking to it. The 404 and the links to it are one fix, so they are one task. Product cards that link through a collection (`/collections/…/products/…`, redirected to `/products/…`) are one task for the whole shop, since it's one snippet. Plus a task per link in the theme with generic text or nofollow, and one per page for the rest |
-| **Images** | image, with every page showing it and what's wrong with it (alt text, size, dimensions) |
+| **Images** | image file, with every page showing it and what's wrong with it (alt text, size, dimensions). One file served at several sizes or versions (`logo.png?width=600`, `?ver=3`) is one task; an image a script serves (`image.php?id=12`) keeps its query, since that's what tells images apart |
 | **Site settings** | setting: a security header, a sitemap problem, HTTP links on an HTTPS site |
 | **Duplicates** | group of pages sharing a title, description, H1 or their content |
 | **Speed** | template Lighthouse measured (Product, Collection…), or page without one |
@@ -152,8 +152,7 @@ makes (a missing H1, missing product schema, a speed problem Lighthouse measured
 least 80% of a template's pages, and ten or more, is one **template task** instead (*Product
 template*), with the issue as a subtask listing every page, and it's left off the pages themselves.
 Collection copies of products (`/collections/…/products/…`) aren't filed page by page: they're
-counted in the product-card task and go when it's fixed. Images are grouped by file, so one picture
-Shopify serves at several sizes is one task. Lists from an earlier Shopify export by severity
+counted in the product-card task and go when it's fixed. Lists from an earlier Shopify export by severity
 (Errors, Warnings, Notices) are no longer updated: archive them after the first export.
 
 A link counts as part of the theme when it's on ten or more pages, or on several in the navigation,
