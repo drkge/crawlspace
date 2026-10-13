@@ -33,8 +33,7 @@ public enum ClickUpTopic: String, CaseIterable, Codable, Sendable {
     public func hint(shopify: Bool) -> String {
         switch self {
         case .links: "A task per broken or redirecting URL, with every page linking to it, and per link in the theme."
-        case .images: shopify ? "A task per image file, whatever sizes it's shown at, with every page showing it."
-            : "A task per image, with every page showing it."
+        case .images: "A task per image file, whatever sizes it's shown at, with every page showing it."
         case .siteSettings: "A task per setting, such as a security header, rather than per page."
         case .duplicates: "A task per group of pages sharing a title, description, H1 or content."
         case .speed: "A task per template Lighthouse measured."
@@ -257,10 +256,17 @@ public enum ClickUpUnitBuilder {
     /// The share of a template's pages an issue has to be on to count as the template's.
     static let templateShare = 0.8
 
-    /// An image's file, whatever size Shopify serves it at: its address without the query.
+    /// An image's file, whatever size or version it's asked for at: its address without the query,
+    /// when the address names an image file (logo.png?width=600, logo.png?ver=3). An address that
+    /// doesn't, such as image.php?id=12, keeps its query, since that's what says which image it is.
     static func imageFile(_ address: String) -> String {
-        address.split(separator: "?", maxSplits: 1).first.map(String.init) ?? address
+        let parts = address.split(separator: "?", maxSplits: 1)
+        guard parts.count == 2, let path = URL(string: String(parts[0]))?.pathExtension.lowercased(),
+              imageExtensions.contains(path) else { return address }
+        return String(parts[0])
     }
+
+    static let imageExtensions: Set = ["jpg", "jpeg", "png", "gif", "webp", "avif", "svg", "bmp", "tif", "tiff", "ico", "heic"]
 
     /// Lighthouse templates that stand for many pages; home, cart and search are one page each.
     static let sharedTemplates: Set = ["Product", "Collection", "Article", "Blog", "Page"]
@@ -408,8 +414,8 @@ public enum ClickUpUnitBuilder {
                                          severity: worst(codes), codes: sorted(codes), pages: [page]))
             }
 
-            // Images: one task per image, with every page showing it. On a Shopify store, per file:
-            // the CDN serves one file at many sizes, and its alt text and weight are set once.
+            // Images: one task per image file, with every page showing it. A CDN serves one file at
+            // many sizes and versions, and its alt text and weight are set once.
             var images: [Int64: (codes: Set<String>, pages: Set<Int64>, counts: [String: Set<Int64>])] = [:]
             for (code, condition) in imageConditions where wanted(code, in: .images) {
                 claimed.insert(code)
@@ -436,7 +442,7 @@ public enum ClickUpUnitBuilder {
             }
             try urls.load(Set(images.keys), db: db)
             var files: [String: [Int64]] = [:]
-            for image in images.keys { files[shopify ? imageFile(urls[image].url) : "\(image)", default: []].append(image) }
+            for image in images.keys { files[imageFile(urls[image].url), default: []].append(image) }
             for (file, sizes) in files {
                 let ordered = sizes.sorted { (images[$0]?.pages.count ?? 0, $1) > (images[$1]?.pages.count ?? 0, $0) }
                 var codes: Set<String> = []
@@ -449,7 +455,7 @@ public enum ClickUpUnitBuilder {
                     counts.merge(found.counts) { $0.union($1) }
                 }
                 let first = ordered[0]
-                let name = shopify ? IssueEvidenceBuilder.shorten(file, site: origin) : shown(first)
+                let name = IssueEvidenceBuilder.shorten(file, site: origin)
                 units.append(ClickUpUnit(topic: .images, kind: .image(first), name: name,
                                          severity: worst(Array(codes)), codes: sorted(codes),
                                          pages: try byInlinks(pages), counts: counts.mapValues(\.count),
