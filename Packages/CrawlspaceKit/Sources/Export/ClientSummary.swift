@@ -52,12 +52,20 @@ public enum ClientSummaryBuilder {
         var siteWide = true
     }
 
+    /// The product card linking through collection addresses, which stands for several issues.
+    static let productCards = "product_cards"
+
     /// The crawl's problems by kind, worst first. The issue on pages linking to a broken URL is
     /// the same problem as the URL itself, so it is counted there.
     static func kinds(store: CrawlStore) throws -> [Kind] {
         let units = try ClickUpUnitBuilder.units(store: store, severities: Set(IssueSeverity.allCases))
         var byCode: [String: Kind] = [:]
         for unit in units {
+            if case .productCards = unit.kind {
+                byCode[productCards] = Kind(code: productCards, severity: unit.severity, area: .links,
+                                            items: unit.counts["addresses"] ?? 0, pages: Set(unit.pages), siteWide: true)
+                continue
+            }
             let siteWide = switch unit.kind {
             case .setting, .link, .template: true
             default: false
@@ -227,16 +235,21 @@ public enum ClientSummaryBuilder {
         let p = kind.pages.count.formatted()
         let pages = kind.pages.count == 1 ? "1 page" : "\(p) pages"
         let one = kind.items == 1
+        let link = kind.pages.count == 1 ? "links" : "link"
         switch kind.code {
+        case productCards:
+            return kind.items > 0
+                ? "Product cards on \(pages) link through collection addresses, sending visitors through \(n) \(one ? "redirect" : "redirects")"
+                : "Product cards on \(pages) link to products through a collection's address rather than their own"
         case "response_internal_4xx", "response_internal_5xx", "response_internal_no_response":
             let what = one ? "1 address on the site no longer works" : "\(n) addresses on the site no longer work"
-            return kind.pages.isEmpty ? what : "\(what), and \(pages) link to \(one ? "it" : "them")"
+            return kind.pages.isEmpty ? what : "\(what), and \(pages) \(link) to \(one ? "it" : "them")"
         case "response_external_broken":
-            return "\(pages) link to \(one ? "a page" : "\(n) pages") on other sites that no longer \(one ? "works" : "work")"
+            return "\(pages) \(link) to \(one ? "a page" : "\(n) pages") on other sites that no longer \(one ? "works" : "work")"
         case "response_external_unverified":
             return "\(one ? "1 link" : "\(n) links") to other sites couldn't be checked automatically"
         case "response_internal_3xx":
-            return "\(pages) link to \(one ? "an address that redirects" : "\(n) addresses that redirect") elsewhere"
+            return "\(pages) \(link) to \(one ? "an address that redirects" : "\(n) addresses that redirect") elsewhere"
         case "redirect_chain":
             return "\(one ? "1 redirect passes" : "\(n) redirects pass") through several steps before arriving"
         case "redirect_loop":

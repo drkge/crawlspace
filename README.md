@@ -135,7 +135,7 @@ a list of its own, in a Crawlspace folder in the space you choose:
 
 | List | One task per |
 |---|---|
-| **Links** | URL that is broken, redirects or couldn't be checked, with every page linking to it. The 404 and the links to it are one fix, so they are one task. Plus a task per link in the theme with generic text or nofollow, and one per page for the rest |
+| **Links** | URL that is broken, redirects or couldn't be checked, with every page linking to it. The 404 and the links to it are one fix, so they are one task. Product cards that link through a collection (`/collections/…/products/…`, redirected to `/products/…`) are one task for the whole shop, since it's one snippet. Plus a task per link in the theme with generic text or nofollow, and one per page for the rest |
 | **Images** | image, with every page showing it and what's wrong with it (alt text, size, dimensions) |
 | **Site settings** | setting: a security header, a sitemap problem, HTTP links on an HTTPS site |
 | **Duplicates** | group of pages sharing a title, description, H1 or their content |
