@@ -91,6 +91,47 @@ public enum ShopifyProfile {
         config.appliedProfile = "Shopify"
     }
 
+    /// Whether a crawl is of a Shopify store: detected at the start, or set by hand.
+    public static func isStore(_ config: CrawlConfig) -> Bool {
+        config.appliedProfile == "Shopify" || config.platformProfile == .shopify
+    }
+
+    /// The theme templates a store's pages are built from.
+    public enum Template: String, CaseIterable, Sendable {
+        case home = "Home"
+        case collection = "Collection"
+        case allProducts = "All products"
+        case product = "Product"
+        case cart = "Cart"
+        case search = "Search"
+        case blog = "Blog"
+        case article = "Article"
+        case page = "Page"
+    }
+
+    /// The template a store address is built from, allowing for a market prefix such as /en-gb.
+    /// Nil for an address that isn't any of the templates, and for one with a query unless
+    /// `ignoringQuery`: page 9 of a collection is built from the collection template, but isn't
+    /// the page to measure it by.
+    public static func template(of address: String, ignoringQuery: Bool = false) -> Template? {
+        guard let url = URL(string: address) else { return nil }
+        var segments = url.path().split(separator: "/").map(String.init)
+        if let first = segments.first, first.wholeMatch(of: /[a-z]{2}(-[a-z]{2,4})?/) != nil,
+           segments.count == 1 || ["collections", "products", "blogs", "pages"].contains(segments[1]) {
+            segments.removeFirst()
+        }
+        if url.query() != nil, !ignoringQuery { return nil }
+        switch (segments.first, segments.count) {
+        case (nil, _): return .home
+        case ("collections", 2): return segments[1] == "all" ? .allProducts : .collection
+        case ("products", 2): return .product
+        case ("blogs", 2): return .blog
+        case ("blogs", 3): return segments[2] == "tagged" ? nil : .article
+        case ("pages", 2): return .page
+        default: return nil
+        }
+    }
+
     /// Headers a Shopify storefront sends with every page.
     static let headerNames = ["x-shopid", "x-shopify-stage", "x-shardid"]
 

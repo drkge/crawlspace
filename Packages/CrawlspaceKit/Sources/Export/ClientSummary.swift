@@ -73,7 +73,7 @@ public enum ClientSummaryBuilder {
             for code in unit.codes where !ClickUpUnitBuilder.linkSourceCodes.contains(code) {
                 guard let definition = IssueCatalogue.definition(for: code) else { continue }
                 var kind = byCode[code] ?? Kind(code: code, severity: severity(of: definition),
-                                                area: Area.of(unit.topic))
+                                                area: area(of: definition, in: unit.topic))
                 kind.items += 1
                 kind.pages.formUnion(unit.pages)
                 kind.siteWide = kind.siteWide && siteWide
@@ -81,6 +81,15 @@ public enum ClientSummaryBuilder {
             }
         }
         return ranked(Array(byCode.values))
+    }
+
+    /// Where a problem belongs: speed and product data by what they are, wherever they were filed,
+    /// so a Shopify product's long title reads as a page problem, not a product-data one.
+    private static func area(of definition: IssueDefinition, in topic: ClickUpTopic) -> Area {
+        if definition.category == .speed { return .speed }
+        if definition.category == .ecommerce { return .products }
+        let area = Area.of(topic)
+        return area == .products ? .pages : area
     }
 
     /// An issue's severity, or that of the links to it when those are worse: a broken page is as
@@ -273,7 +282,7 @@ public enum ClientSummaryBuilder {
         }
         if let setting = settings[kind.code] { return setting }
         if let phrase = pageProblems[kind.code] {
-            if kind.area == .speed { return "\(pages) measured \(one ? singular(phrase) : phrase)" }
+            if kind.code.hasPrefix("lh_") { return "\(pages) measured \(kind.pages.count == 1 ? singular(phrase) : phrase)" }
             let noun = kind.area == .products && kind.code.hasPrefix("ecom_product") ? (one ? "1 product" : "\(p) products") : pages
             return "\(noun) \(one ? phrase : plural(phrase))"
         }
@@ -321,7 +330,7 @@ public enum ClientSummaryBuilder {
             case .duplicates: .duplicates
             case .speed: .speed
             case .products: .products
-            case .errors, .warnings, .notices: .pages
+            case .errors, .warnings, .notices, .collections, .storePages, .blog, .otherPages: .pages
             }
         }
 

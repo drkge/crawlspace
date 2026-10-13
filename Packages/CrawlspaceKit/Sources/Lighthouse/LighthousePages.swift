@@ -10,7 +10,7 @@ import Storage
 /// of each covers the store in about ten pages rather than twenty-five near-identical products.
 public enum LighthousePages {
     public static func isShopify(_ config: CrawlConfig) -> Bool {
-        config.appliedProfile == "Shopify" || config.platformProfile == .shopify
+        ShopifyProfile.isStore(config)
     }
 
     public static func usesShopifyTemplates(_ config: CrawlConfig) -> Bool {
@@ -36,20 +36,7 @@ public enum LighthousePages {
 
 /// The pages that stand for a Shopify store's templates.
 enum ShopifyTemplates {
-    enum Template: String, CaseIterable {
-        case home = "Home"
-        case collection = "Collection"
-        case allProducts = "All products"
-        case product = "Product"
-        case cart = "Cart"
-        case search = "Search"
-        case blog = "Blog"
-        case article = "Article"
-        case page = "Page"
-
-        /// How many of each to measure.
-        var count: Int { self == .product ? 3 : 1 }
-    }
+    typealias Template = ShopifyProfile.Template
 
     static func pages(store: CrawlStore, config: CrawlConfig) throws -> [LighthouseBatch.Page] {
         var chosen: [Template: [LighthouseBatch.Page]] = [:]
@@ -71,24 +58,8 @@ enum ShopifyTemplates {
         return Template.allCases.flatMap { chosen[$0] ?? [] }
     }
 
-    /// The template a store address is built from, allowing for a market prefix such as /en-gb.
     static func template(of address: String, depth: Int) -> Template? {
-        guard let url = URL(string: address) else { return nil }
-        var segments = url.path().split(separator: "/").map(String.init)
-        if let first = segments.first, first.wholeMatch(of: /[a-z]{2}(-[a-z]{2,4})?/) != nil,
-           segments.count == 1 || ["collections", "products", "blogs", "pages"].contains(segments[1]) {
-            segments.removeFirst()
-        }
-        if url.query() != nil { return nil }
-        switch (segments.first, segments.count) {
-        case (nil, _): return .home
-        case ("collections", 2): return segments[1] == "all" ? .allProducts : .collection
-        case ("products", 2): return .product
-        case ("blogs", 2): return .blog
-        case ("blogs", 3): return segments[2] == "tagged" ? nil : .article
-        case ("pages", 2): return .page
-        default: return nil
-        }
+        ShopifyProfile.template(of: address)
     }
 
     /// A word that's in plenty of the store's product names, so the search returns real results.
@@ -118,4 +89,9 @@ enum ShopifyTemplates {
         guard let url = URL(string: startURL), let scheme = url.scheme, let host = url.host() else { return nil }
         return "\(scheme)://\(host)" + (url.port.map { ":\($0)" } ?? "")
     }
+}
+
+extension ShopifyProfile.Template {
+    /// How many of each to measure.
+    var count: Int { self == .product ? 3 : 1 }
 }

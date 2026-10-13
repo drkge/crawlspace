@@ -4,11 +4,51 @@ import Foundation
 import GRDB
 import Storage
 
-/// The lists a crawl's issues are filed into. Links, images, site settings, duplicates, speed and
-/// products each get a list of their own, because one fix there usually clears many pages; what's
-/// left is filed page by page, into a list for each severity.
+/// The lists a crawl's issues are filed into. Links, images, site settings and duplicates each get
+/// a list of their own, because one fix there usually clears many pages. What's left is filed page
+/// by page: on a Shopify store into a list per kind of page (products, collections, pages, blog
+/// posts and the rest), elsewhere into a list per severity, with speed and products beside them.
 public enum ClickUpTopic: String, CaseIterable, Codable, Sendable {
-    case links, images, siteSettings, duplicates, speed, products, errors, warnings, notices
+    case links, images, siteSettings, duplicates, speed, products, collections, storePages, blog, otherPages
+    case errors, warnings, notices
+
+    /// The lists a crawl files into: by kind of page on a Shopify store, by severity elsewhere.
+    public static func topics(shopify: Bool) -> [ClickUpTopic] {
+        shopify ? [.links, .images, .siteSettings, .duplicates, .products, .collections, .storePages, .blog, .otherPages]
+                : [.links, .images, .siteSettings, .duplicates, .speed, .products, .errors, .warnings, .notices]
+    }
+
+    /// The list a Shopify page goes into, by the template it's built from.
+    public static func list(for template: ShopifyProfile.Template?) -> ClickUpTopic {
+        switch template {
+        case .product: .products
+        case .collection, .allProducts: .collections
+        case .page: .storePages
+        case .blog, .article: .blog
+        default: .otherPages
+        }
+    }
+
+    /// A line for the export panel saying what the list holds.
+    public func hint(shopify: Bool) -> String {
+        switch self {
+        case .links: "A task per broken or redirecting URL, with every page linking to it, and per link in the theme."
+        case .images: shopify ? "A task per image file, whatever sizes it's shown at, with every page showing it."
+            : "A task per image, with every page showing it."
+        case .siteSettings: "A task per setting, such as a security header, rather than per page."
+        case .duplicates: "A task per group of pages sharing a title, description, H1 or content."
+        case .speed: "A task per template Lighthouse measured."
+        case .products: shopify ? "A task per product page, its issues as subtasks; theme issues on most products in one Product template task."
+            : "A task per product page, with what its data is missing."
+        case .collections: "A task per collection page, its issues as subtasks; theme issues in one Collection template task."
+        case .storePages: "A task per page (/pages/…), its issues as subtasks."
+        case .blog: "A task per blog and blog post, its issues as subtasks; theme issues in one Article template task."
+        case .otherPages: "The home page and anything else, a task each with its issues as subtasks."
+        case .errors: "A task per page, with the rest of its errors."
+        case .warnings: "A task per page, with the rest of its warnings."
+        case .notices: "A task per page, with the rest of its notices."
+        }
+    }
 
     public var label: String {
         switch self {
@@ -18,6 +58,10 @@ public enum ClickUpTopic: String, CaseIterable, Codable, Sendable {
         case .duplicates: "Duplicates"
         case .speed: "Speed"
         case .products: "Products"
+        case .collections: "Collections"
+        case .storePages: "Pages"
+        case .blog: "Blog posts"
+        case .otherPages: "Other pages"
         case .errors: "Errors"
         case .warnings: "Warnings"
         case .notices: "Notices"
@@ -48,6 +92,8 @@ public enum ClickUpTopic: String, CaseIterable, Codable, Sendable {
     var tag: String {
         switch self {
         case .siteSettings: "site-settings"
+        case .storePages: "shopify-pages"
+        case .otherPages: "other-pages"
         case .errors, .warnings, .notices: "pages"
         default: rawValue
         }
@@ -102,6 +148,13 @@ public struct ClickUpUnit: Sendable, Hashable {
     public var pages: [Int64]
     /// Pages per issue code, where that differs from `pages`.
     public var counts: [String: Int] = [:]
+    /// Each issue as a subtask: a Shopify page's issues, or a template's.
+    public var subtasks: [ClickUpSubtask] = []
+    /// Everything it stands for, where that's more than one URL: every size of an image file.
+    public var members: [Int64] = []
+    /// True when it has issues only at severities left out of this export: its task, if there is
+    /// one, is left as it is rather than closed.
+    public var heldOpen = false
 
     /// What the task's count is of: issues on a page, otherwise pages.
     public var countsIssues: Bool {
@@ -116,6 +169,15 @@ public struct ClickUpUnit: Sendable, Hashable {
     var noun: String {
         countsIssues ? (count == 1 ? "issue" : "issues") : (count == 1 ? "page" : "pages")
     }
+}
+
+/// One issue under a task: on a page, or on most pages built from a template.
+public struct ClickUpSubtask: Sendable, Hashable {
+    public var name: String
+    public var code: String
+    public var severity: IssueSeverity
+    /// The pages it's on, most linked-to first.
+    public var pages: [Int64]
 }
 
 /// Works out the units a crawl's issues come to, and writes each one's task.
@@ -178,14 +240,38 @@ public enum ClickUpUnitBuilder {
         "content_exact_duplicate": "content_hash", "content_near_duplicate": "",
     ]
 
+    /// Issues the theme makes rather than a page's own content: on most pages of a template, they
+    /// are the template's to fix, once.
+    static let templateCodes: Set = [
+        "h1_missing", "h1_multiple", "h2_missing", "title_multiple", "meta_description_multiple",
+        "canonical_missing", "canonical_canonicalised", "canonical_multiple_conflicting", "canonical_relative",
+        "canonical_outside_head", "canonical_target_non_200", "canonical_target_non_indexable",
+        "structured_data_parse_error", "ecom_product_schema_missing", "ecom_product_no_price",
+        "ecom_product_no_availability", "ecom_product_no_image",
+        "hreflang_invalid_code", "hreflang_missing_self_reference", "hreflang_missing_x_default",
+        "hreflang_missing_return_links", "hreflang_non_200_target", "directives_noindex", "directives_nofollow",
+        "javascript_render_failed", "javascript_content_only_rendered", "javascript_links_only_rendered",
+        "javascript_title_changed", "javascript_meta_description_changed", "javascript_canonical_changed",
+        "links_no_internal_outlinks",
+    ]
+    /// The share of a template's pages an issue has to be on to count as the template's.
+    static let templateShare = 0.8
+
+    /// An image's file, whatever size Shopify serves it at: its address without the query.
+    static func imageFile(_ address: String) -> String {
+        address.split(separator: "?", maxSplits: 1).first.map(String.init) ?? address
+    }
+
     /// Lighthouse templates that stand for many pages; home, cart and search are one page each.
     static let sharedTemplates: Set = ["Product", "Collection", "Article", "Blog", "Page"]
 
     // MARK: - Units
 
     public static func units(store: CrawlStore, severities: Set<IssueSeverity>,
-                             topics: Set<ClickUpTopic> = Set(ClickUpTopic.allCases)) throws -> [ClickUpUnit] {
+                             topics chosen: Set<ClickUpTopic> = Set(ClickUpTopic.allCases)) throws -> [ClickUpUnit] {
         let config = try store.loadConfig()
+        let shopify = ShopifyProfile.isStore(config)
+        let topics = chosen.intersection(ClickUpTopic.topics(shopify: shopify))
         let site = URL(string: config.startURL)?.host() ?? config.startURL
         let origin = URL(string: config.startURL).flatMap { url in url.scheme.map { "\($0)://\(url.host() ?? "")" } } ?? ""
 
@@ -248,9 +334,24 @@ public enum ClickUpUnitBuilder {
             }
             let flagged = wanted(productCardCode, in: .links) ? byCode[productCardCode] ?? [] : []
             claimed.insert(productCardCode)
+            // On a Shopify store, collection copies that answer with the product's page are the
+            // card's doing too: they're filed with it, not page by page.
+            var copies: Set<Int64> = []
+            var servedCopies: [Int64] = []
+            if shopify {
+                for row in try Row.fetchAll(db, sql: """
+                    SELECT id, url, status_code FROM urls WHERE is_internal = 1 AND url LIKE '%/collections/%/products/%'
+                    """) {
+                    let (id, address, status): (Int64, String, Int?) = (row[0], row[1], row[2])
+                    guard isCollectionProduct(address, site: site) else { continue }
+                    copies.insert(id)
+                    if status == 200 { servedCopies.append(id) }
+                }
+            }
             if !cardTargets.isEmpty || !flagged.isEmpty {
+                let addresses = cardTargets + servedCopies
                 var linkers = Set(flagged)
-                for chunk in cardTargets.chunked(900) {
+                for chunk in addresses.chunked(900) {
                     linkers.formUnion(try Int64.fetchAll(db, sql: """
                         SELECT DISTINCT source_id FROM links WHERE type = \(LinkType.anchor.rawValue)
                           AND target_id IN (\(chunk.map { _ in "?" }.joined(separator: ",")))
@@ -261,7 +362,7 @@ public enum ClickUpUnitBuilder {
                 if !flagged.isEmpty { codes.insert(productCardCode) }
                 units.append(ClickUpUnit(topic: .links, kind: .productCards, name: "Product cards: links through collection addresses",
                                          severity: worst(Array(codes)), codes: sorted(codes), pages: try byInlinks(linkers),
-                                         counts: ["addresses": cardTargets.count]))
+                                         counts: ["addresses": cardTargets.count, "copies": servedCopies.count]))
             }
             for (id, codes) in targets {
                 let linkers = try Int64.fetchAll(db, sql: "SELECT DISTINCT source_id FROM links WHERE target_id = ?", arguments: [id])
@@ -307,7 +408,8 @@ public enum ClickUpUnitBuilder {
                                          severity: worst(codes), codes: sorted(codes), pages: [page]))
             }
 
-            // Images: one task per image, with every page showing it.
+            // Images: one task per image, with every page showing it. On a Shopify store, per file:
+            // the CDN serves one file at many sizes, and its alt text and weight are set once.
             var images: [Int64: (codes: Set<String>, pages: Set<Int64>, counts: [String: Set<Int64>])] = [:]
             for (code, condition) in imageConditions where wanted(code, in: .images) {
                 claimed.insert(code)
@@ -332,11 +434,26 @@ public enum ClickUpUnitBuilder {
                     images[image]!.pages.formUnion(pages)
                 }
             }
-            for (image, found) in images {
-                try urls.load([image], db: db)
-                units.append(ClickUpUnit(topic: .images, kind: .image(image), name: shown(image),
-                                         severity: worst(Array(found.codes)), codes: sorted(found.codes),
-                                         pages: try byInlinks(found.pages), counts: found.counts.mapValues(\.count)))
+            try urls.load(Set(images.keys), db: db)
+            var files: [String: [Int64]] = [:]
+            for image in images.keys { files[shopify ? imageFile(urls[image].url) : "\(image)", default: []].append(image) }
+            for (file, sizes) in files {
+                let ordered = sizes.sorted { (images[$0]?.pages.count ?? 0, $1) > (images[$1]?.pages.count ?? 0, $0) }
+                var codes: Set<String> = []
+                var pages: Set<Int64> = []
+                var counts: [String: Set<Int64>] = [:]
+                for size in ordered {
+                    guard let found = images[size] else { continue }
+                    codes.formUnion(found.codes)
+                    pages.formUnion(found.pages)
+                    counts.merge(found.counts) { $0.union($1) }
+                }
+                let first = ordered[0]
+                let name = shopify ? IssueEvidenceBuilder.shorten(file, site: origin) : shown(first)
+                units.append(ClickUpUnit(topic: .images, kind: .image(first), name: name,
+                                         severity: worst(Array(codes)), codes: sorted(codes),
+                                         pages: try byInlinks(pages), counts: counts.mapValues(\.count),
+                                         members: ordered.count > 1 ? ordered : []))
             }
 
             // Site settings: one task per issue.
@@ -384,6 +501,8 @@ public enum ClickUpUnitBuilder {
                     }
                 }
                 for (members, value) in zip(groups, values) {
+                    let members = members.filter { !copies.contains($0) }
+                    guard members.count >= 2 else { continue }
                     let pages = try byInlinks(members)
                     let first = pages.map(pageName).min() ?? ""
                     let name = switch code {
@@ -398,6 +517,10 @@ public enum ClickUpUnitBuilder {
                 }
             }
 
+            if shopify {
+                units += try shopifyPages(db: db, byCode: byCode, claimed: claimed, copies: copies, topics: topics,
+                                          severities: severities, urls: &urls, site: site)
+            } else {
             // Speed: one task per template a page was measured as, or per page without one.
             var speedPages: [Int64: [String]] = [:]
             for (code, ids) in byCode where wanted(code, in: .speed) {
@@ -440,6 +563,7 @@ public enum ClickUpUnitBuilder {
                                              severity: worst(codes), codes: sorted(codes), pages: [page]))
                 }
             }
+            }
 
             let order = Dictionary(uniqueKeysWithValues: ClickUpTopic.allCases.enumerated().map { ($1, $0) })
             return units.sorted { a, b in
@@ -449,6 +573,105 @@ public enum ClickUpUnitBuilder {
                 return a.name < b.name
             }
         }
+    }
+
+    /// A Shopify store's pages, each in the list for its kind of page with its issues as subtasks.
+    /// An issue the theme makes, on most pages of a template, becomes a subtask of one task for the
+    /// template instead, and so does a speed problem Lighthouse measured on a template's page.
+    /// Collection copies of products are left out: the product-card task stands for them.
+    private static func shopifyPages(db: Database, byCode: [String: [Int64]], claimed: Set<String>,
+                                     copies: Set<Int64>, topics: Set<ClickUpTopic>, severities: Set<IssueSeverity>,
+                                     urls: inout URLLookup, site: String) throws -> [ClickUpUnit] {
+        func lookup(_ code: String) -> IssueDefinition? { IssueCatalogue.definition(for: code) }
+        func severity(_ code: String) -> IssueSeverity { lookup(code)?.severity ?? .notice }
+        func title(_ code: String) -> String { ClickUpUnitBuilder.title(code) }
+        let pageTopics: Set<ClickUpTopic> = [.errors, .warnings, .notices, .products, .speed]
+
+        // Every issue a page has of its own, at any severity, so a page with only issues left out
+        // of this export isn't mistaken for one that's clean.
+        var perPage: [Int64: Set<String>] = [:]
+        for (code, ids) in byCode where !claimed.contains(code) {
+            guard let definition = lookup(code), pageTopics.contains(ClickUpTopic.topic(for: definition)) else { continue }
+            for id in ids where !copies.contains(id) { perPage[id, default: []].insert(code) }
+        }
+        try urls.load(Set(perPage.keys), db: db)
+
+        // How many pages each template has, to judge what's on most of them.
+        var templateOf: [Int64: String] = [:]
+        var pagesPerTemplate: [String: Int] = [:]
+        for row in try Row.fetchAll(db, sql: "SELECT id, url FROM urls WHERE is_internal = 1 AND state = 1 AND resource_type = 0") {
+            let (id, address): (Int64, String) = (row[0], row[1])
+            guard !copies.contains(id), let template = ShopifyProfile.template(of: address, ignoringQuery: true) else { continue }
+            templateOf[id] = template.rawValue
+            pagesPerTemplate[template.rawValue, default: 0] += 1
+        }
+        var measured: [Int64: String] = [:]
+        for row in try Row.fetchAll(db, sql: "SELECT url_id, template FROM lighthouse_reports WHERE template IS NOT NULL") {
+            let template: String = row[1]
+            if sharedTemplates.contains(template) { measured[row[0]] = template }
+        }
+
+        // What moves to a template: per template, per issue, the pages.
+        var onTemplate: [String: [String: [Int64]]] = [:]
+        for (page, codes) in perPage {
+            for code in codes {
+                if code.hasPrefix("lh_"), let template = measured[page] {
+                    onTemplate[template, default: [:]][code, default: []].append(page)
+                } else if templateCodes.contains(code), let template = templateOf[page] {
+                    onTemplate[template, default: [:]][code, default: []].append(page)
+                }
+            }
+        }
+        var moved: [String: [String: [Int64]]] = [:]
+        for (template, issues) in onTemplate {
+            let total = pagesPerTemplate[template] ?? 0
+            for (code, pages) in issues {
+                let speed = code.hasPrefix("lh_")
+                let most = pages.count >= IssueEvidenceBuilder.templatePages && Double(pages.count) >= templateShare * Double(total)
+                if speed || most { moved[template, default: [:]][code] = pages }
+            }
+        }
+
+        func byInlinks(_ ids: some Sequence<Int64>) throws -> [Int64] {
+            let unique = Set(ids)
+            try urls.load(unique, db: db)
+            return unique.sorted {
+                let (a, b) = (urls[$0], urls[$1])
+                return a.inlinks != b.inlinks ? a.inlinks > b.inlinks : a.url < b.url
+            }
+        }
+        func ordered(_ codes: some Sequence<String>) -> [String] {
+            Array(Set(codes)).sorted { severity($0) != severity($1) ? severity($0) < severity($1) : $0 < $1 }
+        }
+
+        var units: [ClickUpUnit] = []
+        for (template, issues) in moved {
+            let topic = ClickUpTopic.list(for: ShopifyProfile.Template(rawValue: template))
+            guard topics.contains(topic) else { continue }
+            let all = ordered(issues.keys)
+            let chosen = all.filter { severities.contains(severity($0)) }
+            var subtasks: [ClickUpSubtask] = []
+            for code in chosen {
+                subtasks.append(ClickUpSubtask(name: title(code), code: code, severity: severity(code), pages: try byInlinks(issues[code] ?? [])))
+            }
+            units.append(ClickUpUnit(topic: topic, kind: .template(template), name: "\(template) template",
+                                     severity: severity((chosen.isEmpty ? all : chosen)[0]), codes: chosen,
+                                     pages: try byInlinks(issues.values.joined()), subtasks: subtasks, heldOpen: chosen.isEmpty))
+        }
+        for (page, codes) in perPage {
+            let template = templateOf[page] ?? measured[page]
+            let own = codes.filter { code in !(template.flatMap { moved[$0]?[code] }?.contains(page) ?? false) }
+            guard !own.isEmpty else { continue }
+            let topic = ClickUpTopic.list(for: ShopifyProfile.template(of: urls[page].url, ignoringQuery: true))
+            guard topics.contains(topic) else { continue }
+            let all = ordered(own)
+            let chosen = all.filter { severities.contains(severity($0)) }
+            units.append(ClickUpUnit(topic: topic, kind: .page(page), name: ClickUpExporter.pageName(for: urls[page].url, site: site),
+                                     severity: severity((chosen.isEmpty ? all : chosen)[0]), codes: chosen, pages: [page],
+                                     subtasks: chosen.map { ClickUpSubtask(name: title($0), code: $0, severity: severity($0), pages: [page]) },
+                                     heldOpen: chosen.isEmpty))
+        }
+        return units
     }
 
     /// A link in the theme: on enough pages that it can't have been typed into each, or in a part
@@ -542,8 +765,12 @@ public enum ClickUpUnitBuilder {
 
         case .image(let id):
             guard let image = try store.row(id: id) else { break }
-            parts.append("**[\(ClickUpExporter.cell(IssueEvidenceBuilder.shorten(image.url, site: origin)))](\(ClickUpExporter.linkTarget(image.url)))** "
-                + "is on \(unit.pages.count.formatted()) \(unit.pages.count == 1 ? "page" : "pages") with an issue.")
+            var lead = "**[\(ClickUpExporter.cell(IssueEvidenceBuilder.shorten(image.url, site: origin)))](\(ClickUpExporter.linkTarget(image.url)))** "
+                + "is on \(unit.pages.count.formatted()) \(unit.pages.count == 1 ? "page" : "pages") with an issue."
+            if unit.members.count > 1 {
+                lead += " It's one file, served at \(unit.members.count) sizes: its alt text and weight are set once, for all of them."
+            }
+            parts.append(lead)
             for code in unit.codes {
                 var section = "**\(title(code))**"
                 if code == "images_over_100kb" {
@@ -556,9 +783,12 @@ public enum ClickUpUnitBuilder {
                 }
                 parts.append(section)
             }
+            let sizes = unit.members.isEmpty ? [id] : unit.members
             let places = try store.pool.read { db in
-                try Row.fetchAll(db, sql: "SELECT source_id, text, flags FROM links WHERE target_id = ? AND type = ?",
-                                 arguments: [id, LinkType.image.rawValue])
+                try Row.fetchAll(db, sql: """
+                    SELECT source_id, text, flags FROM links WHERE type = \(LinkType.image.rawValue)
+                      AND target_id IN (\(sizes.map { _ in "?" }.joined(separator: ",")))
+                    """, arguments: StatementArguments(sizes))
             }
             var where_: [Int64: (text: String, position: LinkPosition)] = [:]
             for row in places { where_[row[0]] = (row[1], LinkFlags(rawValue: row[2]).position) }
@@ -601,6 +831,13 @@ public enum ClickUpUnitBuilder {
             parts.append("\(definition.description)\n\n**How to fix:** \(advice ?? definition.howToFix)")
             parts.append(plainTable("Pages"))
 
+        case .template(let template) where !unit.subtasks.isEmpty:
+            let kind = template.lowercased()
+            parts.append("**These issues are on most \(kind) pages**, so they come from the theme's \(kind) template rather "
+                + "than each page: fix them there, once, and every page clears. Each is a subtask listing its pages.")
+            parts.append(unit.subtasks.map { "- \($0.name) — on \($0.pages.count.formatted()) \($0.pages.count == 1 ? "page" : "pages")" }
+                .joined(separator: "\n"))
+
         case .template(let template):
             parts.append("**Measured as the store's \(template) page.** Every \(template.lowercased()) page is built from the theme's "
                 + "\(template.lowercased()) template, so fix it there, once.")
@@ -613,6 +850,10 @@ public enum ClickUpUnitBuilder {
             if addresses > 0 {
                 lead += " \(addresses.formatted()) of those \(addresses == 1 ? "address redirects" : "addresses redirect") to the product's own, "
                     + "so every click, and every visit from a search engine, takes an extra hop."
+            }
+            if let copies = unit.counts["copies"], copies > 0 {
+                lead += " \(copies.formatted()) more \(copies == 1 ? "is a copy" : "are copies") of the product's page, pointing search "
+                    + "engines at the product's own: their notices are counted here, not as a task each, and go when the card is fixed."
             }
             parts.append(lead)
             parts.append("**It's one change.** The links come from the theme's product card, the snippet every collection and "
@@ -635,11 +876,53 @@ public enum ClickUpUnitBuilder {
             }
             parts.append(plainTable("Pages with these links"))
 
+        case .page where !unit.subtasks.isEmpty:
+            guard let row = pageRows.first else { break }
+            parts.append("**\(link(row.url))** has \(unit.subtasks.count) \(unit.subtasks.count == 1 ? "issue" : "issues"), "
+                + "each a subtask with what's wrong and how to fix it:")
+            parts.append(unit.subtasks.map { "- \($0.name) — \(label($0.severity))" }.joined(separator: "\n"))
+
         case .page(let id):
             guard let row = pageRows.first else { break }
             parts.append(try pageIssues(id, url: row.url, unit: unit, store: store, site: site, heading: false))
         }
         return parts.joined(separator: "\n\n")
+    }
+
+    /// A subtask's description: the issue on its page, or on every page of a template.
+    static func markdown(for subtask: ClickUpSubtask, in unit: ClickUpUnit, store: CrawlStore, rows: Int) throws -> String {
+        let config = try store.loadConfig()
+        let site = URL(string: config.startURL)?.host() ?? config.startURL
+        guard let first = subtask.pages.first else { return "" }
+        if case .template(let template) = unit.kind {
+            let shown = try store.rows(ids: Array(subtask.pages.prefix(rows)))
+            let evidence = try IssueEvidenceBuilder.evidence(for: subtask.code, urlID: first, store: store)
+            var parts = ["**On \(subtask.pages.count.formatted()) \(template.lowercased()) pages**, so it's the theme's \(template.lowercased()) template to fix, once."]
+            if let definition = IssueCatalogue.definition(for: subtask.code) { parts.append(definition.description) }
+            if !evidence.items.isEmpty {
+                parts.append("**On \(ClickUpExporter.pageName(for: shown.first?.url ?? "", site: site)), for example**"
+                    + evidence.items.prefix(5).map { "\n- \($0.text)" }.joined())
+            }
+            parts.append("**How to fix:** \(evidence.fix)")
+            let more = subtask.pages.count > shown.count
+                ? " — the first \(shown.count.formatted()) of \(subtask.pages.count.formatted()), all in the attached CSV" : ""
+            parts.append((["**Pages**\(more)", "", "| Page |", "|---|"] + shown.map {
+                "| [\(ClickUpExporter.cell(ClickUpExporter.pageName(for: $0.url, site: site)))](\(ClickUpExporter.linkTarget($0.url))) |"
+            }).joined(separator: "\n"))
+            return parts.joined(separator: "\n\n")
+        }
+        let url = try store.row(id: first)?.url ?? ""
+        var single = unit
+        single.codes = [subtask.code]
+        return try pageIssues(first, url: url, unit: single, store: store, site: site, heading: false)
+    }
+
+    static func label(_ severity: IssueSeverity) -> String {
+        switch severity {
+        case .error: "error"
+        case .warning: "warning"
+        case .notice: "notice"
+        }
     }
 
     /// A page's issues in a unit: each one's specifics and its fix.

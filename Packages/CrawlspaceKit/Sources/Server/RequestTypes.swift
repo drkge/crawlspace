@@ -74,6 +74,15 @@ struct ClickUpListChoice: Encodable, Sendable {
 struct ClickUpDestinationDTO: Encodable, Sendable {
     var site: String
     var destination: ClickUpDestination?
+    /// The lists this crawl files into: by kind of page for a Shopify store, by severity otherwise.
+    var topics: [ClickUpTopicDTO]
+    var shopify: Bool
+}
+
+struct ClickUpTopicDTO: Encodable, Sendable {
+    var id: String
+    var label: String
+    var hint: String
 }
 
 struct ClickUpProgress: Encodable, Sendable {

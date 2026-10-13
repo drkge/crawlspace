@@ -33,6 +33,9 @@ public struct ClickUpExportOptions: Sendable {
 
 public struct ClickUpExportResult: Sendable, Hashable {
     public var tasks = 0
+    /// Issues filed under a page or template task, and ones closed because they've gone.
+    public var subtasks = 0
+    public var subtasksClosed = 0
     public var attachments = 0
     public var urlsInAttachments = 0
     /// What reconciling with a list that already has these tasks in it did.
@@ -49,9 +52,11 @@ public struct ClickUpExportResult: Sendable, Hashable {
     public var summary: String {
         var parts: [String] = []
         if tasks > 0 { parts.append("\(tasks.formatted()) new \(tasks == 1 ? "task" : "tasks")") }
+        if subtasks > 0 { parts.append("\(subtasks.formatted()) new \(subtasks == 1 ? "subtask" : "subtasks")") }
         if tasksUpdated > 0 { parts.append("\(tasksUpdated.formatted()) updated") }
         if tasksReopened > 0 { parts.append("\(tasksReopened.formatted()) reopened") }
         if tasksClosed > 0 { parts.append("\(tasksClosed.formatted()) closed") }
+        if subtasksClosed > 0 { parts.append("\(subtasksClosed.formatted()) \(subtasksClosed == 1 ? "issue" : "issues") done") }
         if attachments > 0 { parts.append("\(attachments.formatted()) CSV \(attachments == 1 ? "attachment" : "attachments")") }
         var summary = parts.isEmpty ? "nothing to change" : parts.joined(separator: ", ")
         if closingHeldBack {
@@ -74,6 +79,8 @@ extension ClickUpExportResult {
     /// Adds up the exports into each list.
     mutating func add(_ other: ClickUpExportResult) {
         tasks += other.tasks
+        subtasks += other.subtasks
+        subtasksClosed += other.subtasksClosed
         attachments += other.attachments
         urlsInAttachments += other.urlsInAttachments
         tasksUpdated += other.tasksUpdated
@@ -340,6 +347,8 @@ public enum ClickUpExporter {
         let recrawled = Set(try store.rows(ids: store.rowIDs(for: URLListQuery(filter: .internalAll)))
             .map { pageName(for: $0.url, site: site) })
 
+        var children: [String: [ClickUpClient.ExistingTask]] = [:]
+        for task in existing { if let parent = task.parent { children[parent, default: []].append(task) } }
         var mine: [String: ClickUpClient.ExistingTask] = [:]
         for task in existing where task.parent == nil
             && task.tagNames.contains("crawlspace") && task.tagNames.contains(siteTag) {
@@ -358,6 +367,8 @@ public enum ClickUpExporter {
             progress?(unit.name, Double(index) / Double(max(1, units.count)))
             let key = "\(unit.topic.rawValue)|\(unit.name)"
             handled.insert(key)
+            // Only issues left out of this export: its task, if any, stays as it is.
+            if unit.heldOpen { continue }
 
             let body = try ClickUpUnitBuilder.markdown(for: unit, store: store, rows: options.tableRows)
             let ref = fingerprint(body)
@@ -401,6 +412,12 @@ public enum ClickUpExporter {
                 result.attachments += 1
                 result.urlsInAttachments += unit.pages.count
             }
+
+            if !unit.subtasks.isEmpty {
+                try await fileSubtasks(of: unit, under: taskID, existing: children[taskID] ?? [], listID: listID, site: site,
+                                       crawlName: crawlName, wholeSite: coveredWholeSite, detail: detail, store: store,
+                                       options: options, client: client, result: &result)
+            }
         }
 
         // What's gone: close it rather than leave it looking outstanding.
@@ -409,7 +426,8 @@ public enum ClickUpExporter {
                 // Left out of this export by the lists or severities chosen.
                 guard let topic = topic(of: task), topics.contains(topic),
                       let severity = severity(of: task), options.severities.contains(severity) else { continue }
-                let isPage = topic.pageSeverity != nil || topic == .products
+                let pageLists: Set<ClickUpTopic> = [.products, .collections, .storePages, .blog, .otherPages]
+                let isPage = (topic.pageSeverity != nil || pageLists.contains(topic)) && !task.name.hasSuffix(" template")
                 guard isPage ? recrawled.contains(task.name) : coveredWholeSite else {
                     if !coveredWholeSite { result.closingHeldBack = true }
                     continue
@@ -417,9 +435,90 @@ public enum ClickUpExporter {
                 try await client.updateTask(id: task.id, status: closed)
                 try await client.comment(taskID: task.id, text: "Fixed: not found in \(crawlName).")
                 result.tasksClosed += 1
+                // Its issues go with it; the task's comment says why.
+                for child in children[task.id] ?? [] where !child.isClosed {
+                    try await client.updateTask(id: child.id, status: closed)
+                    result.subtasksClosed += 1
+                }
             }
         }
         return result
+    }
+
+    /// A page's or template's issues as subtasks, reconciled with what's already under it: new ones
+    /// filed, changed ones rewritten, returning ones reopened, and gone ones closed. Never a second
+    /// copy of a name; one already there twice is reported.
+    private static func fileSubtasks(of unit: ClickUpUnit, under parent: String, existing: [ClickUpClient.ExistingTask],
+                                     listID: String, site: String, crawlName: String, wholeSite: Bool,
+                                     detail: ClickUpClient.ListDetail, store: CrawlStore, options: ClickUpExportOptions,
+                                     client: ClickUpClient, result: inout ClickUpExportResult) async throws {
+        var byName: [String: ClickUpClient.ExistingTask] = [:]
+        for child in existing {
+            if byName[child.name] != nil { result.duplicatesFound += 1 }
+            byName[child.name] = child
+        }
+        var wanted: Set<String> = []
+        for subtask in unit.subtasks {
+            wanted.insert(subtask.name)
+            let body = try ClickUpUnitBuilder.markdown(for: subtask, in: unit, store: store, rows: options.tableRows)
+            let ref = fingerprint(body)
+            let count = subtask.pages.count
+            let noun = count == 1 ? "page" : "pages"
+            let markdown = body + "\n\nFound by Crawlspace in *\(crawlName)*. Covers \(count.formatted()) \(noun) · ref \(ref)"
+            var attach = false
+            if let child = byName[subtask.name] {
+                let before = footer(of: child.description)
+                if child.isClosed, let open = detail.openStatus {
+                    try await client.updateTask(id: child.id, status: open, markdown: markdown)
+                    try await client.comment(taskID: child.id, text: "Back: \(count.formatted()) \(noun) in \(crawlName).")
+                    result.tasksReopened += 1
+                } else if before?.ref != ref {
+                    try await client.updateTask(id: child.id, markdown: markdown)
+                    if let previous = before?.count, previous != count {
+                        try await client.comment(taskID: child.id, text: "Crawlspace: \(previous.formatted()) → \(count.formatted()) \(noun) in \(crawlName).")
+                    }
+                    result.tasksUpdated += 1
+                }
+                attach = before?.count != count
+                if attach, count > options.tableRows {
+                    try await attachCSV(subtask, to: child.id, store: store, client: client, result: &result)
+                }
+            } else {
+                var tags = ["crawlspace", tagSlug(site), tagSlug(subtask.severity.label), unit.topic.tag]
+                tags.append(contentsOf: options.extraTags)
+                let created = try await client.createTask(listID: listID, .init(
+                    name: subtask.name, markdown: markdown, tags: tags,
+                    priority: priority(for: subtask.severity), parent: parent
+                ))
+                result.subtasks += 1
+                if count > options.tableRows {
+                    try await attachCSV(subtask, to: created.id, store: store, client: client, result: &result)
+                }
+            }
+        }
+
+        // Issues gone from the page, or from the template: only those at the severities exported,
+        // and a template's only on the word of a crawl of the whole site.
+        guard let closed = detail.closedStatus else { return }
+        let isTemplate = if case .template = unit.kind { true } else { false }
+        for child in existing where !wanted.contains(child.name) && !child.isClosed {
+            guard let severity = severity(of: child), options.severities.contains(severity) else { continue }
+            guard !isTemplate || wholeSite else {
+                result.closingHeldBack = true
+                continue
+            }
+            try await client.updateTask(id: child.id, status: closed)
+            try await client.comment(taskID: child.id, text: "Fixed: not found in \(crawlName).")
+            result.subtasksClosed += 1
+        }
+    }
+
+    private static func attachCSV(_ subtask: ClickUpSubtask, to task: String, store: CrawlStore, client: ClickUpClient,
+                                  result: inout ClickUpExportResult) async throws {
+        let csv = try csvData(store: store, ids: subtask.pages, code: subtask.code)
+        try await client.attach(taskID: task, filename: "\(subtask.code)-\(subtask.pages.count)-urls.csv", data: csv)
+        result.attachments += 1
+        result.urlsInAttachments += subtask.pages.count
     }
 
     /// Which list a task was filed for, from its tags; nil for the earlier layout's tasks.
