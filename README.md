@@ -143,8 +143,13 @@ A fix is one change, with every page it touches: a broken address and every link
 file, a setting, a change to a template, a page and its issues. Selecting one shows, in the
 inspector, what's wrong where and how to fix it, with every address in full.
 
+A page's issues are one fix, its own links among them; a link the theme repeats on many pages is
+one fix under Links. Pages alike in several ways — the same content, title, description and H1 —
+are one fix too, with each likeness as an issue under it, since deciding which page to keep settles
+them all.
+
 The list keeps names short: an image by its file name (one fix for the file, at whatever size or
-address it's served, Shopify's CDN included), another site's address without https:// or tracking
+address it's served, Shopify's CDN and its resized _480x480 copies included), another site's address without https:// or tracking
 and with the middle of a long path left out, and encoded characters as themselves (®, not %C2%AE).
 
 Some addresses aren't fixes. A copy of a page with only tracking added (`?_psid=` from Shopify's
