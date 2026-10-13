@@ -5,7 +5,7 @@ import GRDB
 import Storage
 
 /// A site's fixes, kept on this Mac across crawls: every thing to fix the crawls found, ticked off
-/// as it's done and confirmed by a crawl that looked again.
+/// as it's done and verified by a crawl that looked again.
 ///
 /// The items are the same units the ClickUp export used to file in full — a broken URL and the
 /// links to it, an image file, a page and its issues — so the detail lives here, where it can be
@@ -14,11 +14,11 @@ public final class Worklist: Sendable {
     public enum Status: String, Codable, Sendable, CaseIterable {
         /// Found, and not done yet.
         case open
-        /// Marked done here, waiting for a check to confirm it.
+        /// Marked done here, waiting for a check to verify it.
         case ticked
         /// Gone from a crawl that looked again.
-        case confirmed
-        /// Ticked or confirmed, then found again.
+        case verified
+        /// Done or verified, then found again.
         case reopened
     }
 
@@ -36,9 +36,9 @@ public final class Worklist: Sendable {
         public var firstSeen: String
         public var lastSeen: String
         public var tickedAt: Date?
-        public var confirmedAt: Date?
-        /// The crawl that confirmed it.
-        public var confirmedBy: String?
+        public var verifiedAt: Date?
+        /// The crawl that verified it.
+        public var verifiedBy: String?
         public var pageCount: Int
         /// What a quick check crawls to see whether it's fixed; empty for what only a full crawl
         /// or a speed check can tell.
@@ -48,7 +48,7 @@ public final class Worklist: Sendable {
     /// What an update changed.
     public struct Changes: Sendable, Hashable, Codable {
         public var added = 0
-        public var confirmed = 0
+        public var verified = 0
         public var reopened = 0
     }
 
@@ -89,8 +89,8 @@ public final class Worklist: Sendable {
                     last_seen TEXT NOT NULL,
                     last_seen_path TEXT NOT NULL,
                     ticked_at REAL,
-                    confirmed_at REAL,
-                    confirmed_by TEXT,
+                    verified_at REAL,
+                    verified_by TEXT,
                     page_count INTEGER NOT NULL,
                     check_urls TEXT NOT NULL,
                     sort INTEGER NOT NULL
@@ -98,6 +98,15 @@ public final class Worklist: Sendable {
                 CREATE INDEX IF NOT EXISTS items_on_parent ON items(parent_key);
                 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
                 """)
+            // 2.1.16 called verified fixes "confirmed".
+            let columns = try Row.fetchAll(db, sql: "PRAGMA table_info(items)").map { $0["name"] as String }
+            if columns.contains("confirmed_at") {
+                try db.execute(sql: """
+                    ALTER TABLE items RENAME COLUMN confirmed_at TO verified_at;
+                    ALTER TABLE items RENAME COLUMN confirmed_by TO verified_by;
+                    UPDATE items SET status = 'verified' WHERE status = 'confirmed';
+                    """)
+            }
         }
     }
 
@@ -141,25 +150,38 @@ public final class Worklist: Sendable {
         }
     }
 
-    /// Everything a quick check of the ticked fixes has to crawl.
-    public func checkURLs() throws -> [String] {
+    /// The fixes a check looks at: the ones asked for, with their issues, or every one marked done.
+    /// Verified ones are left out.
+    public func checkKeys(_ keys: [String]? = nil) throws -> [String] {
+        let all = try items()
+        guard let keys else { return all.filter { $0.status == .ticked }.map(\.key) }
+        let asked = Set(keys)
+        return all.filter { (asked.contains($0.key) || $0.parentKey.map(asked.contains) == true) && $0.status != .verified }.map(\.key)
+    }
+
+    /// Everything a check of those fixes has to crawl.
+    public func checkURLs(for keys: [String]) throws -> [String] {
+        let wanted = Set(keys)
         var seen: Set<String> = []
         var urls: [String] = []
-        for item in try items() where item.status == .ticked {
+        for item in try items() where wanted.contains(item.key) {
             for url in item.checkURLs where seen.insert(url).inserted { urls.append(url) }
         }
         return urls
     }
 
+    /// The meta key a check crawl records the fixes it was for under.
+    public static let checkKeysMeta = "check_keys"
+
     // MARK: - Updating from a crawl
 
     /// Brings the list up to date with a crawl of the site.
     ///
-    /// A full crawl adds what's new, and confirms what has gone under the same rules the ClickUp
+    /// A full crawl adds what's new, and verifies what has gone under the same rules the ClickUp
     /// export closes by: a page's issues when the page was crawled again, anything else only when
-    /// the crawl covered the whole site. A check — a crawl of just the pages behind ticked fixes —
-    /// adds nothing; it confirms a fix it looked at in full and found gone, and reopens one it
-    /// found still there.
+    /// the crawl covered the whole site. A check — a crawl of just the pages behind some fixes —
+    /// adds nothing and speaks only for the fixes it was for: one it looked at in full and found
+    /// gone is verified, and one it found still there is marked so.
     @discardableResult
     public func update(from store: CrawlStore, isCheck: Bool) throws -> Changes {
         let config = try store.loadConfig()
@@ -175,6 +197,11 @@ public final class Worklist: Sendable {
         let measured = try store.pool.read { db in try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM lighthouse_reports") ?? 0 } > 0
         let now = Date().timeIntervalSince1970
         var changes = Changes()
+        // The fixes a check was for; one made before checks said so was for the ticked ones.
+        let checked: Set<String>? = isCheck
+            ? Set(try store.meta(Self.checkKeysMeta).flatMap { try? JSONDecoder().decode([String].self, from: Data($0.utf8)) }
+                  ?? self.items().filter { $0.status == .ticked }.map(\.key))
+            : nil
 
         try queue.write { db in
             var existing: [String: Item] = [:]
@@ -188,21 +215,23 @@ public final class Worklist: Sendable {
                 if let item = existing[row.key] {
                     if isCheck {
                         // A check only speaks for the fixes it looked at in full.
-                        let covered = !item.checkURLs.isEmpty && item.checkURLs.allSatisfy(crawled.contains)
-                        if covered, [.ticked, .confirmed].contains(item.status) {
-                            try db.execute(sql: "UPDATE items SET status = 'reopened', confirmed_at = NULL, confirmed_by = NULL WHERE key = ?",
+                        let covered = checked?.contains(item.key) == true
+                            && !item.checkURLs.isEmpty && item.checkURLs.allSatisfy(crawled.contains)
+                        // Checked and still there, whatever it was marked.
+                        if covered, item.status != .reopened {
+                            try db.execute(sql: "UPDATE items SET status = 'reopened', verified_at = NULL, verified_by = NULL WHERE key = ?",
                                            arguments: [row.key])
                             changes.reopened += 1
                         }
                         continue
                     }
-                    let status: Status = item.status == .confirmed ? .reopened : item.status
-                    if status == .reopened, item.status == .confirmed { changes.reopened += 1 }
+                    let status: Status = item.status == .verified ? .reopened : item.status
+                    if status == .reopened, item.status == .verified { changes.reopened += 1 }
                     try db.execute(sql: """
                         UPDATE items SET parent_key = ?, topic = ?, name = ?, severity = ?, kind = ?, status = ?, last_seen = ?,
                           last_seen_path = ?, page_count = ?, check_urls = ?, sort = ?,
-                          confirmed_at = CASE WHEN ? = 'reopened' THEN NULL ELSE confirmed_at END,
-                          confirmed_by = CASE WHEN ? = 'reopened' THEN NULL ELSE confirmed_by END
+                          verified_at = CASE WHEN ? = 'reopened' THEN NULL ELSE verified_at END,
+                          verified_by = CASE WHEN ? = 'reopened' THEN NULL ELSE verified_by END
                         WHERE key = ?
                         """, arguments: [row.parentKey, row.topic, row.name, row.severity.rawValue, row.kind, status.rawValue, crawl,
                                          store.packageURL.path, row.pageCount, Self.json(row.checkURLs), index,
@@ -218,11 +247,11 @@ public final class Worklist: Sendable {
             }
 
             // What it didn't find.
-            for item in existing.values where found[item.key] == nil && item.status != .confirmed {
+            for item in existing.values where found[item.key] == nil && item.status != .verified {
                 let speed = item.kind.hasPrefix("lh_")
                 let fixed: Bool
                 if isCheck {
-                    fixed = item.status == .ticked && !item.checkURLs.isEmpty && item.checkURLs.allSatisfy(crawled.contains)
+                    fixed = checked?.contains(item.key) == true && !item.checkURLs.isEmpty && item.checkURLs.allSatisfy(crawled.contains)
                 } else if speed {
                     // Speed is measured after the crawl, so it counts only once there are results.
                     fixed = measured && wholeSite
@@ -232,9 +261,9 @@ public final class Worklist: Sendable {
                     fixed = wholeSite
                 }
                 guard fixed else { continue }
-                try db.execute(sql: "UPDATE items SET status = 'confirmed', confirmed_at = ?, confirmed_by = ? WHERE key = ?",
+                try db.execute(sql: "UPDATE items SET status = 'verified', verified_at = ?, verified_by = ? WHERE key = ?",
                                arguments: [now, crawl, item.key])
-                changes.confirmed += 1
+                changes.verified += 1
             }
             try db.execute(sql: "INSERT INTO meta(key, value) VALUES ('updated', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                            arguments: [crawl])
@@ -356,12 +385,12 @@ public final class Worklist: Sendable {
     private static func item(_ row: Row) -> Item {
         let checks: String = row["check_urls"]
         let ticked: Double? = row["ticked_at"]
-        let confirmed: Double? = row["confirmed_at"]
+        let verified: Double? = row["verified_at"]
         return Item(key: row["key"], parentKey: row["parent_key"], topic: row["topic"], name: row["name"],
                     severity: IssueSeverity(rawValue: row["severity"]) ?? .notice, kind: row["kind"],
                     status: Status(rawValue: row["status"]) ?? .open, firstSeen: row["first_seen"], lastSeen: row["last_seen"],
                     tickedAt: ticked.map(Date.init(timeIntervalSince1970:)),
-                    confirmedAt: confirmed.map(Date.init(timeIntervalSince1970:)), confirmedBy: row["confirmed_by"],
+                    verifiedAt: verified.map(Date.init(timeIntervalSince1970:)), verifiedBy: row["verified_by"],
                     pageCount: row["page_count"],
                     checkURLs: (try? JSONDecoder().decode([String].self, from: Data(checks.utf8))) ?? [])
     }
