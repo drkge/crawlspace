@@ -144,14 +144,16 @@ a list of its own, in a Crawlspace folder in the space you choose:
 | **Errors**, **Warnings**, **Notices** | page, with the rest of its issues listed in the task |
 
 **On a Shopify store** the pages are filed by kind instead of by severity, so a store can be worked
-through page by page: **Products**, **Collections** (paginated pages included), **Pages**, **Blog
+through page by page: **Products**, **Collections**, **Pages**, **Blog
 posts** and **Other pages** (home, cart, search, policies), beside Links, Images, Site settings and
 Duplicates. Each page is one task with its issues, at every severity chosen, as subtasks, each with
 what's wrong there and how to fix it, and the page's priority taken from its worst. An issue the theme
 makes (a missing H1, missing product schema, a speed problem Lighthouse measured…) that's on at
 least 80% of a template's pages, and ten or more, is one **template task** instead (*Product
 template*), with the issue as a subtask listing every page, and it's left off the pages themselves.
-Collection copies of products (`/collections/…/products/…`) aren't filed page by page: they're
+A paginated collection or blog is one task: its later pages (`?page=2` and on) are built the same
+way as the first, so they're filed with it, each subtask saying which pages have the issue, and
+they're left out of duplicate groups. Collection copies of products (`/collections/…/products/…`) aren't filed page by page: they're
 counted in the product-card task and go when it's fixed. Lists from an earlier Shopify export by severity
 (Errors, Warnings, Notices) are no longer updated: archive them after the first export.
 
