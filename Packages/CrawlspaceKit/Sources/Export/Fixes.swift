@@ -106,6 +106,9 @@ public struct Fix: Sendable, Hashable {
     /// True when it has issues only at severities left out: kept as it is, if there is
     /// one, is left as it is rather than closed.
     public var heldOpen = false
+    /// The names its addresses had as fixes of their own, before they were found to be one: the
+    /// worklist carries their status over rather than taking them as fixed.
+    public var aliases: [String] = []
 
     /// What its count is of: issues on a page, otherwise pages.
     public var countsIssues: Bool {
@@ -284,6 +287,25 @@ public enum FixBuilder {
             let cursor = try Row.fetchCursor(db, sql: "SELECT code, url_id FROM issues")
             while let row = try cursor.next() { byCode[row[0], default: []].append(row[1]) }
 
+            // A copy of a page with only tracking added isn't a fix: its issues are its page's, filed
+            // with the page, as long as the page was crawled too. Nor is Shopify's sign-in.
+            var leftOut: Set<Int64> = []
+            for row in try Row.fetchAll(db, sql: """
+                SELECT id, url FROM urls WHERE is_internal = 1 AND (url LIKE '%?%' OR url LIKE '%/customer_authentication/%')
+                """) {
+                let (id, address): (Int64, String) = (row[0], row[1])
+                if isShopifySignIn(address) {
+                    leftOut.insert(id)
+                } else if isTrackingCopy(address), let clean = withoutTracking(address),
+                          try Bool.fetchOne(db, sql: "SELECT 1 FROM urls WHERE url = ? AND status_code IS NOT NULL",
+                                            arguments: [clean]) == true {
+                    leftOut.insert(id)
+                }
+            }
+            if !leftOut.isEmpty {
+                byCode = byCode.mapValues { $0.filter { !leftOut.contains($0) } }.filter { !$0.value.isEmpty }
+            }
+
             var urls = URLLookup()
             try urls.load(Set(byCode.values.joined()), db: db)
 
@@ -308,7 +330,7 @@ public enum FixBuilder {
                 }
             }
             func byInlinks(_ ids: some Sequence<Int64>) throws -> [Int64] {
-                let unique = Set(ids)
+                let unique = Set(ids).subtracting(leftOut)
                 try urls.load(unique, db: db)
                 return unique.sorted {
                     let (a, b) = (urls[$0], urls[$1])
@@ -405,14 +427,31 @@ public enum FixBuilder {
                                          counts: ["addresses": pattern.members.count],
                                          members: pattern.members.sorted { urls[$0].url < urls[$1].url }))
             }
+            // Addresses that differ only by tracking — a link shared with ?sh=1, and with ?sh=2 — are
+            // one link to fix.
+            var byAddress: [String: [(id: Int64, codes: [String], prefix: String)]] = [:]
             for (id, codes) in targets {
-                let linkers = try Int64.fetchAll(db, sql: "SELECT DISTINCT source_id FROM links WHERE target_id = ?", arguments: [id])
-                var all = codes
-                for code in codes { if let paired = targetCodes[code] ?? nil, byCode[paired] != nil { all.append(paired) } }
                 let prefix = codes.contains(where: brokenCodes.contains) ? "Broken link"
                     : codes.contains("response_external_unverified") ? "Unverified link" : "Redirect"
-                units.append(Fix(group: .links, kind: .target(id), name: "\(prefix): \(shown(id))",
-                                         severity: worst(all), codes: sorted(all), pages: try byInlinks(linkers)))
+                let address = urls[id].url
+                byAddress["\(prefix) \(withoutTracking(address) ?? address)", default: []].append((id, codes, prefix))
+            }
+            for same in byAddress.values {
+                let ordered = same.sorted { urls[$0.id].url < urls[$1.id].url }
+                // Named by the address without tracking, if it's one of them.
+                let first = ordered.first { withoutTracking(urls[$0.id].url) == nil } ?? ordered[0]
+                var linkers: Set<Int64> = []
+                var all: Set<String> = []
+                for member in ordered {
+                    linkers.formUnion(try Int64.fetchAll(db, sql: "SELECT DISTINCT source_id FROM links WHERE target_id = ?",
+                                                         arguments: [member.id]))
+                    all.formUnion(member.codes)
+                    for code in member.codes { if let paired = targetCodes[code] ?? nil, byCode[paired] != nil { all.insert(paired) } }
+                }
+                units.append(Fix(group: .links, kind: .target(first.id), name: "\(first.prefix): \(shown(first.id))",
+                                 severity: worst(Array(all)), codes: sorted(Array(all)), pages: try byInlinks(linkers),
+                                 members: ordered.count > 1 ? ordered.map(\.id) : [],
+                                 aliases: ordered.filter { $0.id != first.id }.map { "\($0.prefix): \(shown($0.id))" }))
             }
             for code in linkSourceCodes { claimed.insert(code) }
 
@@ -840,6 +879,12 @@ public enum FixBuilder {
             let status = IssueEvidenceBuilder.statusText(target.statusCode, target.error)
             parts.append("**[\(FixBuilder.cell(IssueEvidenceBuilder.shorten(target.url, site: origin)))](\(FixBuilder.linkTarget(target.url)))** answers \(status). "
                 + "Linked from \(unit.pages.count.formatted()) \(unit.pages.count == 1 ? "page" : "pages").")
+            let others = try store.rows(ids: unit.members.filter { $0 != id })
+            if !others.isEmpty {
+                parts.append((["**Also linked with tracking added**, which goes to the same page:", ""] + others.map {
+                    "- [\(FixBuilder.cell(IssueEvidenceBuilder.shorten($0.url, site: origin)))](\(FixBuilder.linkTarget($0.url)))"
+                }).joined(separator: "\n"))
+            }
             for code in unit.codes where targetCodes[code] != nil {
                 let evidence = try IssueEvidenceBuilder.evidence(for: code, urlID: id, store: store)
                 var section = "**\(title(code))**"
@@ -852,8 +897,8 @@ public enum FixBuilder {
             let places = try store.pool.read { db in
                 try Row.fetchAll(db, sql: """
                     SELECT s.id, l.text, l.flags FROM links l JOIN urls s ON s.id = l.source_id
-                    WHERE l.target_id = ? GROUP BY s.id
-                    """, arguments: [id])
+                    WHERE l.target_id IN (\(([id] + unit.members).map { _ in "?" }.joined(separator: ","))) GROUP BY s.id
+                    """, arguments: StatementArguments([id] + unit.members))
             }
             var where_: [Int64: (text: String, position: LinkPosition)] = [:]
             for row in places { where_[row[0]] = (row[1], LinkFlags(rawValue: row[2]).position) }
@@ -1160,8 +1205,53 @@ extension FixBuilder {
     static let labelAddress = 80
 
     /// Query parameters that only say where a click came from.
+    /// Ads and analytics, share buttons (Forbes' ?sh=, YouTube's ?si=), and Shopify's search and
+    /// recommendations (?_psid=, ?_pos=); utm_ parameters are matched by their prefix.
     static let trackingParameters: Set = ["gclid", "gclsrc", "gbraid", "wbraid", "dclid", "msclkid", "fbclid", "srsltid",
-                                          "pscid", "mc_cid", "mc_eid", "_ga", "_gl", "igshid", "yclid", "ref_src"]
+                                          "pscid", "mc_cid", "mc_eid", "_ga", "_gl", "igshid", "yclid", "ref_src",
+                                          "sh", "si", "smid",
+                                          "_psid", "_pos", "_psq", "_ss", "_v", "_sid", "_fid",
+                                          "pr_prod_strat", "pr_rec_id", "pr_rec_pid", "pr_ref_pid", "pr_seq"]
+
+    static func isTracking(_ parameter: Substring) -> Bool {
+        let name = parameter.split(separator: "=", maxSplits: 1).first.map(String.init)?.lowercased() ?? ""
+        return trackingParameters.contains(name) || name.hasPrefix("utm_")
+    }
+
+    /// The address without its tracking parameters; nil when it has none.
+    static func withoutTracking(_ address: String) -> String? {
+        var rest = Substring(address)
+        var fragment: Substring = ""
+        if let hash = rest.firstIndex(of: "#") { (rest, fragment) = (rest[..<hash], rest[hash...]) }
+        let parts = rest.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2 else { return nil }
+        let items = parts[1].split(separator: "&")
+        let kept = items.filter { !isTracking($0) }
+        guard kept.count < items.count else { return nil }
+        return String(parts[0]) + (kept.isEmpty ? "" : "?" + kept.joined(separator: "&")) + fragment
+    }
+
+    /// A copy of a page with nothing but tracking added — /products/x?_psid=1 — which answers with
+    /// the page itself.
+    static func isTrackingCopy(_ address: String) -> Bool {
+        guard let clean = withoutTracking(address) else { return false }
+        return !clean.contains("?")
+    }
+
+    /// Shopify's sign-in, which the theme's account link goes through: Shopify's to run, not the store's.
+    static func isShopifySignIn(_ address: String) -> Bool {
+        let path = address.hasPrefix("/") ? address : URL(string: address)?.path() ?? ""
+        return path.firstMatch(of: /^(\/[a-z]{2}(-[a-z]{2,4})?)?\/customer_authentication\//) != nil
+    }
+
+    /// Whether a name the worklist has is for something no longer filed as a fix: a tracking copy of
+    /// a page, or Shopify's sign-in — "/products/x?_psid=1", "Links on /products/x?_psid=1",
+    /// "Redirect: /customer_authentication/redirect".
+    static func isLeftOut(name: String) -> Bool {
+        let address = name.split(separator: " ").last.map(String.init) ?? name
+        guard address.hasPrefix("/") else { return false }
+        return isTrackingCopy(address) || isShopifySignIn(address)
+    }
 
     /// Another site's address as a label: without https:// or tracking, and with the middle of a
     /// long path left out. http:// and www. stay, since either can be why a link redirects.
@@ -1169,10 +1259,7 @@ extension FixBuilder {
         guard let url = URL(string: address), let host = url.host() else { return address }
         let site = (url.scheme == "https" ? "" : "\(url.scheme ?? "http")://") + host + (url.port.map { ":\($0)" } ?? "")
         let path = decoded(url.path())
-        let query = (url.query() ?? "").split(separator: "&").filter { item in
-            let name = item.split(separator: "=", maxSplits: 1).first.map(String.init)?.lowercased() ?? ""
-            return !trackingParameters.contains(name) && !name.hasPrefix("utm_")
-        }
+        let query = (url.query() ?? "").split(separator: "&").filter { !isTracking($0) }
         let whole = site + (path == "/" ? "" : path) + (query.isEmpty ? "" : "?" + query.joined(separator: "&"))
         guard whole.count > labelAddress else { return whole }
         // As much of the end of the path as fits: the end is what tells one page from another.

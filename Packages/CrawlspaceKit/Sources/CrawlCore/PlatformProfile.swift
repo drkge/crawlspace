@@ -57,6 +57,7 @@ public enum ShopifyProfile {
         .init(pattern: #"^https?://(www\.)?(facebook\.com/sharer|(twitter|x)\.com/intent|pinterest\.[a-z.]+/pin/create|linkedin\.com/(share|shareArticle)|wa\.me/|api\.whatsapp\.com/send)"#,
               reason: "Share buttons"),
         .init(pattern: #"^https?://(www\.)?shopify\.com/\d+/account"#, reason: "Shopify customer accounts"),
+        .init(pattern: #"^https?://[^/]+(/[a-z]{2}(-[a-z]{2})?)?/customer_authentication/"#, reason: "Shopify customer sign-in"),
     ]
 
     /// Parameters removed from every URL rather than the URLs being skipped. A product card's link
@@ -71,6 +72,8 @@ public enum ShopifyProfile {
         .init(pattern: "_v", reason: "Search and recommendation tracking"),
         .init(pattern: "_sid", reason: "Search and recommendation tracking"),
         .init(pattern: "_fid", reason: "Search and recommendation tracking"),
+        .init(pattern: "_psid", reason: "Search and recommendation tracking"),
+        .init(pattern: "srsltid", reason: "Google's tracking on links copied from its results"),
         .init(pattern: "pr_prod_strat", reason: "Product recommendation tracking"),
         .init(pattern: "pr_rec_id", reason: "Product recommendation tracking"),
         .init(pattern: "pr_rec_pid", reason: "Product recommendation tracking"),

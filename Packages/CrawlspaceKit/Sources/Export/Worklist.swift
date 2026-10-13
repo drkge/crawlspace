@@ -135,6 +135,16 @@ public final class Worklist: Sendable {
                 guard let renamed = FixBuilder.shopifyFile(name) else { continue }
                 try Self.rename(key, to: "\(group)|\(renamed)", name: renamed, db: db)
             }
+            // Tracking copies of pages and Shopify's sign-in were once filed as fixes. They aren't
+            // any more, and a fix that's gone would read as verified, so they go.
+            for row in try Row.fetchAll(db, sql: """
+                SELECT key, name FROM items
+                WHERE parent_key IS NULL AND (name LIKE '%?%' OR name LIKE '%/customer_authentication/%')
+                """) {
+                let (key, name): (String, String) = (row[0], row[1])
+                guard FixBuilder.isLeftOut(name: name) else { continue }
+                try db.execute(sql: "DELETE FROM items WHERE key = ? OR parent_key = ?", arguments: [key, key])
+            }
         }
     }
 
@@ -251,6 +261,10 @@ public final class Worklist: Sendable {
             : nil
 
         try queue.write { db in
+            // Fixes found to be one since they were filed: each takes on the one it's part of.
+            for row in rows {
+                for alias in row.aliases { try Self.rename(alias, to: row.key, name: row.name, db: db) }
+            }
             var existing: [String: Item] = [:]
             for row in try Row.fetchAll(db, sql: "SELECT * FROM items") {
                 let item = Self.item(row)
@@ -340,6 +354,8 @@ public final class Worklist: Sendable {
         var kind: String
         var pageCount: Int
         var checkURLs: [String]
+        /// Keys its addresses had as fixes of their own, whose status it takes over.
+        var aliases: [String] = []
     }
 
     /// How many pages a check samples for a fix that's one change everywhere.
@@ -367,7 +383,7 @@ public final class Worklist: Sendable {
             let speed = unit.codes.allSatisfy { $0.hasPrefix("lh_") }
             let check: [String] = switch unit.kind {
             case .page: urls(unit.pages.prefix(500))
-            case .target(let id): urls([id] + sample)
+            case .target(let id): urls([id] + unit.members + sample)
             case .link(_, let target, _): urls([target] + sample)
             case .image(let id): urls((unit.members.isEmpty ? [id] : unit.members) + sample)
             case .cluster: urls(unit.pages.prefix(500))
@@ -377,7 +393,7 @@ public final class Worklist: Sendable {
             }
             rows.append(Found(key: key, parentKey: nil, group: unit.group.rawValue, name: unit.name, severity: unit.severity,
                               kind: ClientSummaryBuilder.kindCode(of: unit), pageCount: unit.pages.count,
-                              checkURLs: speed ? [] : check))
+                              checkURLs: speed ? [] : check, aliases: unit.aliases.map { "\(unit.group.rawValue)|\($0)" }))
             for issue in unit.issues {
                 let speed = issue.code.hasPrefix("lh_")
                 let pages: [String] = if case .template = unit.kind { urls(issue.pages.prefix(samplePages)) } else { urls(issue.pages) }
@@ -397,7 +413,8 @@ public final class Worklist: Sendable {
         guard let path = try lastSeenPath(for: key) else { return "" }
         let units = try Self.cache.units(at: path)
         let parts = key.split(separator: "|", maxSplits: 2).map(String.init)
-        guard parts.count >= 2, let unit = units.first(where: { $0.group.rawValue == parts[0] && $0.name == parts[1] }) else {
+        guard parts.count >= 2, let unit = units.first(where: { $0.group.rawValue == parts[0] && $0.name == parts[1] })
+                ?? units.first(where: { $0.group.rawValue == parts[0] && $0.aliases.contains(parts[1]) }) else {
             return "Not in \(URL(filePath: path).deletingPathExtension().lastPathComponent) any more."
         }
         let store = try CrawlStore.open(at: URL(filePath: path))
