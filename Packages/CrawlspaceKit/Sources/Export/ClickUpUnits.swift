@@ -507,7 +507,9 @@ public enum ClickUpUnitBuilder {
                     }
                 }
                 for (members, value) in zip(groups, values) {
-                    let members = members.filter { !copies.contains($0) }
+                    // Collection copies are the product card's, and a list's later pages are its first
+                    // page split up: alike by design, so neither makes a duplicate.
+                    let members = members.filter { !copies.contains($0) && !(shopify && paginationBase(of: urls[$0].url) != nil) }
                     guard members.count >= 2 else { continue }
                     let pages = try byInlinks(members)
                     let first = pages.map(pageName).min() ?? ""
@@ -664,20 +666,67 @@ public enum ClickUpUnitBuilder {
                                      severity: severity((chosen.isEmpty ? all : chosen)[0]), codes: chosen,
                                      pages: try byInlinks(issues.values.joined()), subtasks: subtasks, heldOpen: chosen.isEmpty))
         }
-        for (page, codes) in perPage {
+        func own(_ page: Int64) -> Set<String> {
             let template = templateOf[page] ?? measured[page]
-            let own = codes.filter { code in !(template.flatMap { moved[$0]?[code] }?.contains(page) ?? false) }
-            guard !own.isEmpty else { continue }
-            let topic = ClickUpTopic.list(for: ShopifyProfile.template(of: urls[page].url, ignoringQuery: true))
+            return (perPage[page] ?? []).filter { code in !(template.flatMap { moved[$0]?[code] }?.contains(page) ?? false) }
+        }
+
+        // The pages of a paginated collection or blog (?page=2, ?page=9…) are one task with the
+        // first: page 9 of a collection is the same template and settings as page 1, and its own
+        // task would repeat page 1's issues once for every page.
+        var paginated: [String: [Int64]] = [:]
+        for page in perPage.keys {
+            if let first = paginationBase(of: urls[page].url) { paginated[first, default: []].append(page) }
+        }
+        var firstPages: [String: Int64] = [:]
+        for first in paginated.keys {
+            if let id = try Int64.fetchOne(db, sql: "SELECT id FROM urls WHERE url = ?", arguments: [first]) { firstPages[first] = id }
+        }
+        try urls.load(Set(firstPages.values), db: db)
+        let grouped = Set(paginated.values.joined()).union(firstPages.values)
+        var entries: [(id: Int64, address: String, members: [Int64])] = perPage.keys
+            .filter { !grouped.contains($0) }
+            .map { ($0, urls[$0].url, [$0]) }
+        for (first, pages) in paginated {
+            let later = pages.sorted { pageNumber(urls[$0].url) < pageNumber(urls[$1].url) }
+            let members = (firstPages[first].map { [$0] } ?? []) + later
+            entries.append((firstPages[first] ?? later[0], first, members))
+        }
+
+        for entry in entries {
+            var codesOn: [String: [Int64]] = [:]
+            for member in entry.members {
+                for code in own(member) { codesOn[code, default: []].append(member) }
+            }
+            guard !codesOn.isEmpty else { continue }
+            let topic = ClickUpTopic.list(for: ShopifyProfile.template(of: entry.address, ignoringQuery: true))
             guard topics.contains(topic) else { continue }
-            let all = ordered(own)
+            let all = ordered(codesOn.keys)
             let chosen = all.filter { severities.contains(severity($0)) }
-            units.append(ClickUpUnit(topic: topic, kind: .page(page), name: ClickUpExporter.pageName(for: urls[page].url, site: site),
-                                     severity: severity((chosen.isEmpty ? all : chosen)[0]), codes: chosen, pages: [page],
-                                     subtasks: chosen.map { ClickUpSubtask(name: title($0), code: $0, severity: severity($0), pages: [page]) },
+            let pages = entry.members.filter { member in codesOn.values.contains { $0.contains(member) } }
+            units.append(ClickUpUnit(topic: topic, kind: .page(entry.id), name: ClickUpExporter.pageName(for: entry.address, site: site),
+                                     severity: severity((chosen.isEmpty ? all : chosen)[0]), codes: chosen, pages: pages,
+                                     subtasks: chosen.map { ClickUpSubtask(name: title($0), code: $0, severity: severity($0), pages: codesOn[$0] ?? []) },
                                      heldOpen: chosen.isEmpty))
         }
         return units
+    }
+
+    /// The first page of a paginated collection or blog, for one of its later pages: /collections/x
+    /// for /collections/x?page=9. Nil for anything else, including a query that isn't only the page.
+    static func paginationBase(of address: String) -> String? {
+        let parts = address.split(separator: "?", maxSplits: 1).map(String.init)
+        guard parts.count == 2 else { return nil }
+        let names = parts[1].split(separator: "&").map { $0.split(separator: "=", maxSplits: 1).first.map(String.init) ?? "" }
+        guard names == ["page"], [.collection, .allProducts, .blog].contains(ShopifyProfile.template(of: parts[0])) else { return nil }
+        return parts[0]
+    }
+
+    /// Which page of a paginated list an address is: 1 for the first, which has no ?page=.
+    static func pageNumber(_ address: String) -> Int {
+        guard let query = address.split(separator: "?", maxSplits: 1).dropFirst().first,
+              let value = query.split(separator: "=", maxSplits: 1).dropFirst().first, let number = Int(value) else { return 1 }
+        return number
     }
 
     /// A link in the theme: on enough pages that it can't have been typed into each, or in a part
@@ -882,10 +931,16 @@ public enum ClickUpUnitBuilder {
             }
             parts.append(plainTable("Pages with these links"))
 
-        case .page where !unit.subtasks.isEmpty:
-            guard let row = pageRows.first else { break }
-            parts.append("**\(link(row.url))** has \(unit.subtasks.count) \(unit.subtasks.count == 1 ? "issue" : "issues"), "
-                + "each a subtask with what's wrong and how to fix it:")
+        case .page(let id) where !unit.subtasks.isEmpty:
+            guard let row = try store.row(id: id) else { break }
+            let address = paginationBase(of: row.url) ?? row.url
+            var lead = "**\(link(address))** has \(unit.subtasks.count) \(unit.subtasks.count == 1 ? "issue" : "issues"), "
+                + "each a subtask with what's wrong and how to fix it"
+            if unit.pages.count > 1 || paginationBase(of: row.url) != nil {
+                lead += ". Its later pages (?page=2 and on) are filed here too, since they're built the same way; "
+                    + "each subtask says which pages have it"
+            }
+            parts.append(lead + ":")
             parts.append(unit.subtasks.map { "- \($0.name) — \(label($0.severity))" }.joined(separator: "\n"))
 
         case .page(let id):
@@ -920,7 +975,15 @@ public enum ClickUpUnitBuilder {
         let url = try store.row(id: first)?.url ?? ""
         var single = unit
         single.codes = [subtask.code]
-        return try pageIssues(first, url: url, unit: single, store: store, site: site, heading: false)
+        var text = try pageIssues(first, url: url, unit: single, store: store, site: site, heading: false)
+        if subtask.pages.count > 1 {
+            let others = try store.rows(ids: Array(subtask.pages.dropFirst().prefix(rows)))
+            text += "\n\n**Also on** " + others.map {
+                "[\(ClickUpExporter.cell(ClickUpExporter.pageName(for: $0.url, site: site)))](\(ClickUpExporter.linkTarget($0.url)))"
+            }.joined(separator: ", ")
+            if subtask.pages.count - 1 > others.count { text += " and \((subtask.pages.count - 1 - others.count).formatted()) more" }
+        }
+        return text
     }
 
     static func label(_ severity: IssueSeverity) -> String {

@@ -432,8 +432,13 @@ public enum ClickUpExporter {
                     if !coveredWholeSite { result.closingHeldBack = true }
                     continue
                 }
+                // A later page of a collection or blog filed on its own by an earlier export: its
+                // issues now live with the first page, so it closes as moved rather than fixed.
+                let first = ClickUpUnitBuilder.paginationBase(of: task.name)
+                let movedTo = first.flatMap { handled.contains("\(topic.rawValue)|\($0)") ? $0 : nil }
                 try await client.updateTask(id: task.id, status: closed)
-                try await client.comment(taskID: task.id, text: "Fixed: not found in \(crawlName).")
+                try await client.comment(taskID: task.id, text: movedTo.map { "Moved: now filed under \($0) with its other pages." }
+                                                                ?? "Fixed: not found in \(crawlName).")
                 result.tasksClosed += 1
                 // Its issues go with it; the task's comment says why.
                 for child in children[task.id] ?? [] where !child.isClosed {
