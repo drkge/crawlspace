@@ -6,8 +6,8 @@ import Storage
 
 /// What goes into ClickUp: an overview, one task per kind of problem under its severity — *Errors ›
 /// H1: Multiple* — saying how many there are, how many are done, and how to fix them. The detail,
-/// every page and image and link, lives in the site's list of fixes in Crawlspace, where it's ticked
-/// off and checked; a task here closes by itself once every fix of its kind is verified.
+/// every page and image and link, lives in the site's list of fixes in Crawlspace, where it's marked
+/// done and checked; a task here closes by itself once every fix of its kind is verified.
 public enum ClickUpOverview {
     /// One kind of problem, as the overview counts it from the site's fixes.
     public struct Kind: Sendable, Hashable, Codable {
@@ -16,16 +16,14 @@ public enum ClickUpOverview {
         public var severity: IssueSeverity
         public var total = 0
         public var verified = 0
-        public var ticked = 0
+        public var done = 0
         public var lastVerifiedBy: String?
         public var lastVerifiedAt: Date?
 
-        public var toDo: Int { total - verified - ticked }
+        public var toDo: Int { total - verified - done }
         public var isDone: Bool { total > 0 && verified == total }
     }
 
-    /// The lists an overview is filed into: one per severity.
-    public static let topics: [ClickUpTopic] = [.errors, .warnings, .notices]
 
     /// The site's fixes by kind, worst first. A page or template that holds several issues counts
     /// each of them; it's the issues that are fixed.
@@ -44,7 +42,7 @@ public enum ClickUpOverview {
                     kind.lastVerifiedAt = at
                     kind.lastVerifiedBy = item.verifiedBy
                 }
-            case .ticked: kind.ticked += 1
+            case .done: kind.done += 1
             case .open, .reopened: break
             }
             byCode[item.kind] = kind
@@ -60,13 +58,13 @@ public enum ClickUpOverview {
     /// the product cards.
     public static func title(for code: String) -> String {
         if code == ClientSummaryBuilder.productCards { return "Product cards: links through collection addresses" }
-        if let pair = ClickUpUnitBuilder.pair(of: code) { return pair.name }
-        return ClickUpUnitBuilder.title(code)
+        if let pair = FixBuilder.pair(of: code) { return pair.name }
+        return FixBuilder.title(code)
     }
 
     static func markdown(_ kind: Kind, host: String, appAddress: String) -> String {
         var progress = "**\(kind.toDo.formatted()) to fix**"
-        if kind.ticked > 0 { progress += ", \(kind.ticked.formatted()) done and waiting for a check" }
+        if kind.done > 0 { progress += ", \(kind.done.formatted()) done and waiting for a check" }
         progress += ", \(kind.verified.formatted()) verified fixed — \(kind.total.formatted()) found on \(host) so far."
         if kind.isDone { progress = "**All \(kind.total.formatted()) verified fixed** on \(host)." }
         var parts = [progress]
@@ -109,12 +107,11 @@ public enum ClickUpOverview {
         var lists: [String: [Kind]] = [:]
         var resolved: ClickUpFolderExport.Resolved?
         if let destination {
-            let wanted = Set(topics.filter { $0.pageSeverity.map(options.severities.contains) ?? false })
             progress?("Finding the lists in \(destination.spaceName)…", 0)
-            let found = try await ClickUpFolderExport.resolve(destination, topics: wanted, client: client)
+            let found = try await ClickUpFolderExport.resolve(destination, severities: options.severities, client: client)
             resolved = found
             for kind in kinds {
-                guard let list = found.lists[ClickUpTopic.pages(kind.severity)] else { continue }
+                guard let list = found.lists[kind.severity] else { continue }
                 lists[list, default: []].append(kind)
             }
         } else {
@@ -139,7 +136,7 @@ public enum ClickUpOverview {
     static func file(_ kinds: [Kind], into listID: String, host: String, options: ClickUpExportOptions,
                      client: ClickUpClient, appAddress: String,
                      progress: (@Sendable (String, Double) -> Void)? = nil) async throws -> ClickUpExportResult {
-        let siteTag = ClickUpExporter.tagSlug(host)
+        let siteTag = ClickUpOverview.tagSlug(host)
         let detail = try await client.list(id: listID)
         let existing = try await client.tasks(listID: listID)
         var result = ClickUpExportResult()
@@ -158,11 +155,11 @@ public enum ClickUpOverview {
         for (index, kind) in kinds.enumerated() {
             progress?(kind.title, Double(index) / Double(max(1, kinds.count)))
             let body = markdown(kind, host: host, appAddress: appAddress)
-            let ref = ClickUpExporter.fingerprint(body)
+            let ref = ClickUpOverview.fingerprint(body)
             let markdown = body + "\n\nFound by Crawlspace. Covers \(kind.total.formatted()) \(kind.total == 1 ? "fix" : "fixes") · ref \(ref)"
 
             if let task = mine[kind.title] {
-                let before = ClickUpExporter.footer(of: task.description)
+                let before = ClickUpOverview.footer(of: task.description)
                 if kind.isDone, !task.isClosed, let closed = detail.closedStatus {
                     try await client.updateTask(id: task.id, status: closed, markdown: markdown)
                     try await client.comment(taskID: task.id, text: "All \(kind.total.formatted()) verified fixed"
@@ -177,14 +174,14 @@ public enum ClickUpOverview {
                     result.tasksUpdated += 1
                 }
             } else if !kind.isDone {
-                var tags = ["crawlspace", siteTag, ClickUpExporter.tagSlug(kind.severity.label), overviewTag]
+                var tags = ["crawlspace", siteTag, ClickUpOverview.tagSlug(kind.severity.label), overviewTag]
                 if IssueCatalogue.definition(for: kind.code)?.category == .ecommerce || kind.code == ClientSummaryBuilder.productCards {
                     tags.append("e-commerce")
                 }
                 tags.append(contentsOf: options.extraTags)
                 try await client.createTask(listID: listID, .init(
                     name: kind.title, markdown: markdown, tags: tags,
-                    priority: ClickUpExporter.priority(for: kind.severity)
+                    priority: ClickUpOverview.priority(for: kind.severity)
                 ))
                 result.tasks += 1
             }
@@ -195,7 +192,7 @@ public enum ClickUpOverview {
     /// How many overview tasks an export of a crawl would come to, by severity, without touching
     /// the site's list of fixes: for the export panel to say before it files anything.
     public static func preview(store: CrawlStore, severities: Set<IssueSeverity>) throws -> [IssueSeverity: Int] {
-        let units = try ClickUpUnitBuilder.units(store: store, severities: Set(IssueSeverity.allCases))
+        let units = try FixBuilder.units(store: store, severities: Set(IssueSeverity.allCases))
         let rows = try Worklist.rows(for: units, store: store)
         let parents = Set(rows.compactMap(\.parentKey))
         var worst: [String: IssueSeverity] = [:]
@@ -205,16 +202,44 @@ public enum ClickUpOverview {
         return counts
     }
 
-    /// A line for the export panel saying what each severity's list holds.
-    public static func hint(for topic: ClickUpTopic) -> String {
-        let kind = switch topic {
-        case .errors: "error"
-        case .warnings: "warning"
-        default: "notice"
-        }
-        return "One task per kind of \(kind), with how many are left. The pages themselves are in Crawlspace › Fixes."
-    }
-
     /// The tag that marks an overview task, telling it from tasks earlier layouts filed.
     static let overviewTag = "overview"
+
+    // MARK: - ClickUp
+
+    /// ClickUp's priorities: 1 Urgent, 2 High, 3 Normal, 4 Low. Errors are things that are broken
+    /// for whoever visits the page, so they go to the top band.
+    static func priority(for severity: IssueSeverity) -> Int {
+        switch severity {
+        case .error: 1
+        case .warning: 2
+        case .notice: 4
+        }
+    }
+
+    static func tagSlug(_ text: String) -> String {
+        text.lowercased().replacingOccurrences(of: " ", with: "-")
+            .filter { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "." }
+    }
+
+    /// The count and ref a task was last written with, read back from its footer. ClickUp hands
+    /// the description back as plain text, so this reads either.
+    static func footer(of description: String?) -> (count: Int, ref: String)? {
+        guard let description,
+              let match = description.firstMatch(of: /Covers ([0-9][0-9,]*) fix(?:es)? · ref ([0-9a-f]{8})/),
+              let count = Int(match.1.replacingOccurrences(of: ",", with: "")) else { return nil }
+        return (count, String(match.2))
+    }
+
+    /// A short, stable digest of a description, so an unchanged task isn't rewritten. FNV-1a:
+    /// Swift's own hashing is seeded afresh on every run.
+    static func fingerprint(_ text: String) -> String {
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for byte in text.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 0x100_0000_01b3
+        }
+        let digits = String(String(hash, radix: 16).suffix(8))
+        return String(repeating: "0", count: 8 - digits.count) + digits
+    }
 }

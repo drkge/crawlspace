@@ -168,11 +168,7 @@ struct MiscRoutes {
         router.get("api/crawls/:id/clickup/destination") { _, context in
             let store = try await library.session(context.parameters.string("id")).store
             let site = Self.site(of: try store.loadConfig())
-            let topics = ClickUpOverview.topics.map {
-                ClickUpTopicDTO(id: $0.rawValue, label: $0.label, hint: ClickUpOverview.hint(for: $0))
-            }
-            return JSON(ClickUpDestinationDTO(site: site, destination: SettingsStore.load().clickUpDestinations[site],
-                                              topics: topics, shopify: ShopifyProfile.isStore(try store.loadConfig())))
+            return JSON(ClickUpDestinationDTO(site: site, destination: SettingsStore.load().clickUpDestinations[site]))
         }
 
         router.post("api/crawls/:id/clickup/plan") { request, context in
@@ -186,9 +182,9 @@ struct MiscRoutes {
             let destination = body.destination
             guard !destination.spaceID.isEmpty else { throw ServerError.badRequest("Choose a space to file into.") }
             let severities = Settings.severities(body.severities)
-            for topic in ClickUpOverview.topics where topic.pageSeverity.map(severities.contains) ?? false
-                && destination.target(for: topic).listName.trimmingCharacters(in: .whitespaces).isEmpty {
-                throw ServerError.badRequest("Give \(topic.label) a list to go into.")
+            for severity in IssueSeverity.allCases where severities.contains(severity)
+                && destination.target(for: severity).listName.trimmingCharacters(in: .whitespaces).isEmpty {
+                throw ServerError.badRequest("Give \(severity.label) a list to go into.")
             }
             let client = try clickUp()
             let session = try await library.session(context.parameters.string("id"))
@@ -196,7 +192,6 @@ struct MiscRoutes {
             _ = try SettingsStore.update {
                 $0.clickUpDestinations[site] = destination
                 $0.clickUpSeverities = body.severities
-                $0.clickUpTopics = body.topics
             }
             let options = ClickUpExportOptions(listID: "", severities: severities,
                                                extraTags: body.extraTag.isEmpty ? [] : [body.extraTag])
@@ -208,7 +203,7 @@ struct MiscRoutes {
                     events.publish("clickup", ClickUpProgress(title: title, fraction: fraction))
                 }
             }
-            let places = ClickUpTopic.allCases.compactMap { resolved?.paths[$0] }.joined(separator: ", ")
+            let places = IssueSeverity.allCases.compactMap { resolved?.paths[$0] }.joined(separator: ", ")
             var message = "Filed the overview into \(destination.spaceName) (\(places)): \(result.summary)."
             if let created = resolved?.created, !created.isEmpty {
                 message += " Made " + ListFormatter.localizedString(byJoining: created) + "."
@@ -249,10 +244,10 @@ struct MiscRoutes {
             return JSON(list)
         }
 
-        router.post("api/sites/:host/fixes/tick") { request, context in
+        router.post("api/sites/:host/fixes/done") { request, context in
             let host = try context.parameters.string("host")
-            let body = try await request.decodeJSON(TickBody.self, context: context)
-            try await background { try Worklist.open(host: host).tick(body.keys, ticked: body.ticked) }
+            let body = try await request.decodeJSON(DoneBody.self, context: context)
+            try await background { try Worklist.open(host: host).markDone(body.keys, body.done) }
             return JSON(MessageDTO(message: "ok"))
         }
 
@@ -372,7 +367,6 @@ struct MiscRoutes {
 struct ClickUpRequest: Decodable, Sendable {
     var destination: ClickUpDestination
     var severities: [String]
-    var topics: [String]
     var extraTag: String
 }
 

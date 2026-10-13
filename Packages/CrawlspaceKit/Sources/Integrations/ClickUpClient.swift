@@ -127,22 +127,18 @@ public struct ClickUpClient: Sendable {
 
     // MARK: - Tasks
 
-    /// The parts of a ClickUp task this export sets. `parent` is what makes a task a subtask; the
-    /// parent has to be in the same list.
+    /// The parts of a ClickUp task the overview sets.
     public struct NewTask: Encodable, Sendable {
         public var name: String
         public var markdown_description: String?
         public var tags: [String]?
         public var priority: Int?
-        public var parent: String?
 
-        public init(name: String, markdown: String? = nil, tags: [String]? = nil,
-                    priority: Int? = nil, parent: String? = nil) {
+        public init(name: String, markdown: String? = nil, tags: [String]? = nil, priority: Int? = nil) {
             self.name = name
             markdown_description = markdown
             self.tags = tags
             self.priority = priority
-            self.parent = parent
         }
     }
 
@@ -228,24 +224,6 @@ public struct ClickUpClient: Sendable {
                            contentType: "application/json", as: Ignored.self)
     }
 
-    /// Attaches a file to a task. The full list of affected URLs rides along this way rather than
-    /// as hundreds of subtasks.
-    public func attach(taskID: String, filename: String, data: Data) async throws {
-        let boundary = "crawlspace.\(UUID().uuidString)"
-        var body = Data()
-        func append(_ string: String) { body.append(Data(string.utf8)) }
-        append("--\(boundary)\r\n")
-        append("Content-Disposition: form-data; name=\"attachment\"; filename=\"\(filename)\"\r\n")
-        append("Content-Type: text/csv\r\n\r\n")
-        body.append(data)
-        append("\r\n--\(boundary)--\r\n")
-
-        _ = try await send(method: "POST", path: "/v2/task/\(taskID)/attachment", body: body,
-                           contentType: "multipart/form-data; boundary=\(boundary)", as: Attachment.self)
-    }
-
-    private struct Attachment: Decodable, Sendable { var id: String? }
-
     // MARK: - Plumbing
 
     private func get<T: Decodable & Sendable>(_ path: String, query: [URLQueryItem] = [],
@@ -301,7 +279,6 @@ public struct ClickUpClient: Sendable {
             // token. Calling them all a bad token sent people off to regenerate a token that was
             // fine.
             let code = Self.errorCode(data)
-            if code == "ITEM_327" { throw ClickUpError.tooManySubtasks(Self.detail(data)) }
             if code?.hasPrefix("OAUTH") == true || code == nil && http.statusCode == 401 {
                 throw ClickUpError.unauthorised(Self.detail(data))
             }
@@ -337,7 +314,6 @@ public struct ClickUpClient: Sendable {
 
 public enum ClickUpError: LocalizedError {
     case unauthorised(String)
-    case tooManySubtasks(String)
     case rateLimited(String)
     case http(status: Int, detail: String)
     case badResponse(String)
@@ -347,10 +323,6 @@ public enum ClickUpError: LocalizedError {
         switch self {
         case .unauthorised(let detail):
             "ClickUp wouldn't accept the token: \(detail). Check it in ClickUp ▸ Settings ▸ Apps."
-        case .tooManySubtasks:
-            "ClickUp allows at most 1,000 subtasks under one task, and this one is full. If the same " +
-            "pages appear more than once under it, an earlier export filed them twice — remove the " +
-            "copies in ClickUp and export again."
         case .rateLimited(let detail): "ClickUp is rate limiting the export: \(detail)"
         case .http(let status, let detail): "ClickUp returned HTTP \(status): \(detail)"
         case .badResponse(let body): "ClickUp sent something unexpected: \(body)"

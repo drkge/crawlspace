@@ -7,7 +7,7 @@ import Storage
 /// The specifics behind one issue on one URL: exactly what is wrong, where it is, and what to do
 /// about it on this page — rather than the catalogue's general description.
 ///
-/// Shown in the inspector, and written into ClickUp so a task says which link, which image or which
+/// Shown in the inspector and in each fix's description, so it says which link, which image or which
 /// title, not just "this page has a broken link".
 public struct IssueEvidence: Sendable, Hashable, Codable {
     public struct Item: Sendable, Hashable, Identifiable, Codable {
@@ -32,7 +32,7 @@ public struct IssueEvidence: Sendable, Hashable, Codable {
 }
 
 public enum IssueEvidenceBuilder {
-    /// Enough to act on without burying a ClickUp task or the inspector.
+    /// Enough to act on without burying a fix's description or the inspector.
     public static let limit = 25
     /// A link on this many pages is in the theme rather than typed into each page.
     static let templatePages = 10

@@ -10,19 +10,19 @@ import { Markdown } from './Markdown'
  * date, and a check — a crawl of just the pages involved — verifies fixes marked done.
  */
 
-export type FixStatus = 'open' | 'ticked' | 'verified' | 'reopened'
+export type FixStatus = 'open' | 'done' | 'verified' | 'reopened'
 
 export interface FixItem {
   key: string
   parentKey?: string
-  topic: string
+  group: string
   name: string
   severity: number
   kind: string
   status: FixStatus
   firstSeen: string
   lastSeen: string
-  tickedAt?: string
+  doneAt?: string
   verifiedAt?: string
   verifiedBy?: string
   pageCount: number
@@ -35,7 +35,7 @@ export interface FixKind {
   severity: number
   total: number
   verified: number
-  ticked: number
+  done: number
   lastVerifiedBy?: string
   lastVerifiedAt?: string
 }
@@ -48,9 +48,9 @@ export interface FixList {
 
 const severityNames: SeverityName[] = ['error', 'warning', 'notice']
 const severityTitles = ['Errors', 'Warnings', 'Notices']
-export const statusLabels: Record<FixStatus, string> = { open: 'To do', ticked: 'Done', verified: 'Verified', reopened: 'Still there' }
-const statusClass: Record<FixStatus, string> = { open: '', ticked: 'warn', verified: 'ok', reopened: 'bad' }
-const topicNames: Record<string, string> = {
+export const statusLabels: Record<FixStatus, string> = { open: 'To do', done: 'Done', verified: 'Verified', reopened: 'Still there' }
+const statusClass: Record<FixStatus, string> = { open: '', done: 'warn', verified: 'ok', reopened: 'bad' }
+const groupNames: Record<string, string> = {
   links: 'Links',
   images: 'Images',
   siteSettings: 'Site settings',
@@ -114,7 +114,7 @@ export function FixesSidebar(props: {
                 progress(kind.verified, kind.total),
                 <Severity severity={severity} />,
                 `${severityTitles[index]}: ${number(kind.verified)} of ${number(kind.total)} verified` +
-                  (kind.ticked ? `, ${number(kind.ticked)} done and waiting for a check` : ''),
+                  (kind.done ? `, ${number(kind.done)} done and waiting for a check` : ''),
               ),
             )}
           </div>
@@ -126,23 +126,23 @@ export function FixesSidebar(props: {
 
 // MARK: Main pane
 
-type Filter = 'todo' | 'ticked' | 'verified' | 'all'
+type Filter = 'todo' | 'done' | 'verified' | 'all'
 const filters: { id: Filter; label: string; shows: FixStatus[] }[] = [
   { id: 'todo', label: 'To do', shows: ['open', 'reopened'] },
-  { id: 'ticked', label: 'Done', shows: ['ticked'] },
+  { id: 'done', label: 'Done', shows: ['done'] },
   { id: 'verified', label: 'Verified', shows: ['verified'] },
-  { id: 'all', label: 'All', shows: ['open', 'reopened', 'ticked', 'verified'] },
+  { id: 'all', label: 'All', shows: ['open', 'reopened', 'done', 'verified'] },
 ]
 const pageSize = 200
 
-/** The fixes of one kind, or all of them with an overview; tick them off and check them. */
+/** The fixes of one kind, or all of them with an overview; mark them done and check them. */
 export function FixesPane(props: {
   list: FixList
   kind: string
   selected: string | null
   checking: boolean
   onSelect: (key: string) => void
-  onTick: (keys: string[], ticked: boolean) => void
+  onMarkDone: (keys: string[], done: boolean) => void
   onCheck: (keys?: string[]) => void
 }) {
   const { list, kind } = props
@@ -168,12 +168,12 @@ export function FixesPane(props: {
     if (!children?.length) return item.status
     if (children.some((child) => child.status === 'reopened')) return 'reopened'
     if (children.some((child) => child.status === 'open')) return 'open'
-    if (children.some((child) => child.status === 'ticked')) return 'ticked'
+    if (children.some((child) => child.status === 'done')) return 'done'
     return 'verified'
   }
   const shows = filters.find((entry) => entry.id === filter)!.shows
   const visible = rows.filter((item) => shows.includes(statusOf(item)))
-  const done = rows.filter((item) => statusOf(item) === 'ticked')
+  const done = rows.filter((item) => statusOf(item) === 'done')
   const counts = (status: FixStatus) => rows.filter((item) => statusOf(item) === status).length
 
   return (
@@ -202,7 +202,7 @@ export function FixesPane(props: {
         <FixesOverview list={list} />
       ) : (
         <div className="fixes-summary">
-          {(['open', 'reopened', 'ticked', 'verified'] as FixStatus[]).map((status) => (
+          {(['open', 'reopened', 'done', 'verified'] as FixStatus[]).map((status) => (
             <span key={status} className={`chip ${statusClass[status]}`}>
               {statusLabels[status]} {number(counts(status))}
             </span>
@@ -222,17 +222,17 @@ export function FixesPane(props: {
             >
               <input
                 type="checkbox"
-                title={status === 'verified' ? 'Verified fixed' : status === 'ticked' ? 'Mark not done' : 'Mark as done'}
-                checked={status === 'ticked' || status === 'verified'}
+                title={status === 'verified' ? 'Verified fixed' : status === 'done' ? 'Mark not done' : 'Mark as done'}
+                checked={status === 'done' || status === 'verified'}
                 disabled={status === 'verified'}
                 onClick={(event) => event.stopPropagation()}
-                onChange={(event) => props.onTick([item.key], event.target.checked)}
+                onChange={(event) => props.onMarkDone([item.key], event.target.checked)}
               />
               <Severity severity={severityNames[item.severity] ?? 'notice'} />
               <span className="fix-name" title={displayName(item, byKey)}>
                 {all ? item.name : displayName(item, byKey)}
               </span>
-              {all && <span className="hint">{topicNames[item.topic] ?? item.topic}</span>}
+              {all && <span className="hint">{groupNames[item.group] ?? item.group}</span>}
               <span className="hint">
                 {children.length > 0 ? `${children.length} issues` : `${number(item.pageCount)} page${item.pageCount === 1 ? '' : 's'}`}
               </span>
@@ -256,14 +256,14 @@ export function FixesPane(props: {
 function FixesOverview({ list }: { list: FixList }) {
   const total = list.kinds.reduce((sum, kind) => sum + kind.total, 0)
   const verified = list.kinds.reduce((sum, kind) => sum + kind.verified, 0)
-  const ticked = list.kinds.reduce((sum, kind) => sum + kind.ticked, 0)
+  const done = list.kinds.reduce((sum, kind) => sum + kind.done, 0)
   return (
     <div className="fixes-overview">
       <div className="row wrap">
         <strong>
           {number(verified)} of {number(total)} verified
         </strong>
-        {ticked > 0 && <span className="hint">· {number(ticked)} done and waiting for a check</span>}
+        {done > 0 && <span className="hint">· {number(done)} done and waiting for a check</span>}
       </div>
       <div className="progress fixes-progress">
         <div style={{ width: `${total ? (verified / total) * 100 : 0}%` }} />
@@ -293,7 +293,7 @@ export function FixInspector(props: {
   list: FixList
   itemKey: string
   checking: boolean
-  onTick: (keys: string[], ticked: boolean) => void
+  onMarkDone: (keys: string[], done: boolean) => void
   onCheck: (keys?: string[]) => void
   onSelect: (key: string) => void
 }) {
@@ -318,7 +318,7 @@ export function FixInspector(props: {
 
   if (!item) return <div className="empty">Select a fix to see what to do.</div>
   const checkable = item.checkURLs.length > 0 || children.some((child) => child.checkURLs.length > 0)
-  const done = item.status === 'ticked'
+  const done = item.status === 'done'
   return (
     <>
       <div className="inspector-header">
@@ -326,10 +326,10 @@ export function FixInspector(props: {
         <div className="row wrap">
           <Severity severity={severityNames[item.severity] ?? 'notice'} />
           <StatusChip status={item.status} />
-          <span className="hint">{topicNames[item.topic] ?? item.topic}</span>
+          <span className="hint">{groupNames[item.group] ?? item.group}</span>
           <span className="spacer" />
           {item.status !== 'verified' && (
-            <button className="small" onClick={() => props.onTick([item.key], !done)}>
+            <button className="small" onClick={() => props.onMarkDone([item.key], !done)}>
               {done ? 'Not Done' : 'Mark Done'}
             </button>
           )}
@@ -351,10 +351,10 @@ export function FixInspector(props: {
           <dd>{item.firstSeen}</dd>
           <dt>Last seen</dt>
           <dd>{item.lastSeen}</dd>
-          {item.tickedAt && item.status === 'ticked' && (
+          {item.doneAt && item.status === 'done' && (
             <>
               <dt>Marked done</dt>
-              <dd>{relativeDate(item.tickedAt)}</dd>
+              <dd>{relativeDate(item.doneAt)}</dd>
             </>
           )}
           {item.verifiedBy && (
@@ -374,10 +374,10 @@ export function FixInspector(props: {
               <div key={child.key} className="fix-row" onClick={() => props.onSelect(child.key)}>
                 <input
                   type="checkbox"
-                  checked={child.status === 'ticked' || child.status === 'verified'}
+                  checked={child.status === 'done' || child.status === 'verified'}
                   disabled={child.status === 'verified'}
                   onClick={(event) => event.stopPropagation()}
-                  onChange={(event) => props.onTick([child.key], event.target.checked)}
+                  onChange={(event) => props.onMarkDone([child.key], event.target.checked)}
                 />
                 <span className="fix-name">{child.name}</span>
                 <StatusChip status={child.status} />

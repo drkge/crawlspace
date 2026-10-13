@@ -330,7 +330,6 @@ export interface About {
 
 export interface Settings {
   clickUpSeverities: Severity[]
-  clickUpTopics: string[]
   automaticUpdates: boolean
 }
 

@@ -11,7 +11,7 @@ import Foundation
 /// mend the one line of the theme.
 ///
 /// Only clear, repeated evidence makes a pattern — three addresses or more sharing the reason, and
-/// a theme error even once, since that's always one line to mend. Anything else keeps its own task.
+/// a theme error even once, since that's always one line to mend. Anything else keeps its own fix.
 public enum ChangePatterns {
     public enum Kind: Sendable, Hashable {
         /// Redirects that all land on the same address — removed pages sent to the home page.
@@ -123,7 +123,7 @@ public enum ChangePatterns {
         return plain.replacingOccurrences(of: "#", with: "1")
     }
 
-    /// The task's name: the reason, without counts, so the next export finds it again.
+    /// The fix's name: the reason, without counts, so the next crawl finds it again.
     static func name(of kind: Kind) -> String {
         switch kind {
         case .destination(let path): path == "/" ? "Redirect pattern: removed pages sent to the home page"

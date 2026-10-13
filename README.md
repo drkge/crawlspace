@@ -2,7 +2,9 @@
 
 An SEO crawler for the Mac: point it at a site, it crawls the pages, and reports the problems
 search engines care about — broken links, redirect chains, duplicate titles, missing canonicals,
-hreflang mistakes, slow pages and so on.
+hreflang mistakes, slow pages and so on. Then it keeps track of fixing them: each change to make,
+marked done as it's made and verified by a quick crawl of just the pages involved, with an overview
+in ClickUp that closes itself as the fixes land.
 
 It runs in the menu bar and you use it in your browser. Every push to `main` becomes a
 release, and every installed copy updates itself — no DMGs to hand round, and no signing.
@@ -101,6 +103,9 @@ there's no Google account to connect.
   that run themselves overnight and diff against the previous run;
 - e-commerce checks for online shops, and a Shopify profile.
 
+Since 2.0: fixes kept across crawls and verified by quick checks, change patterns, an overview in
+ClickUp that follows them, and a client summary.
+
 ## Connections
 
 **Maximum connections** is a ceiling, and by default Crawlspace looks for a kinder number under it.
@@ -112,7 +117,9 @@ that* off to pin the crawl to exactly the number you set.
 The status bar shows how many connections are open, and both the automatic changes and your own
 take effect on a running crawl without stopping it.
 
-The **Export** menu has the things worth taking away from a finished crawl: the issues into
+## Exports
+
+The **Export** menu has the things worth taking away from a finished crawl: the overview into
 ClickUp, the internal HTML table (or the table on screen) as CSV or Excel, and two reports as a PDF
 or web page. They download through the browser.
 
@@ -158,15 +165,17 @@ follows this list (below).
 **Export ▸ Issues to ClickUp…** (⇧⌘K) puts an **overview** into ClickUp: one task per kind of
 problem, in an Errors, Warnings or Notices list in a Crawlspace folder of the space you choose —
 *Errors › Page Titles: Missing*, *Warnings › Page Titles: Too Long*. Each says how many are left to
-fix, how many are done and waiting for a check, and how many are confirmed fixed; what the problem
+fix, how many are done and waiting for a check, and how many are verified fixed; what the problem
 is and how to fix it; and where the detail is. The detail — every page, image and link, with what's
 wrong where — is in [Fixes](#fixes), where it's marked done and checked. A pair measured two ways (a
 title over 60 characters and 561 pixels), and a broken address with the links to it, count as one.
 Priority comes from the severity: errors Urgent, warnings High, notices Low.
 
 Exporting brings the site's list of fixes up to date with the crawl first, starting one if there
-isn't one. After that ClickUp follows the list by itself: when a check or a crawl confirms the last
-fix of a kind, its task closes with a comment saying which; when one comes back, the task reopens.
+isn't one. After that ClickUp follows the list by itself: when a check or a crawl in the app verifies
+the last fix of a kind, its task closes with a comment saying which; when one comes back, the task
+reopens. (A scheduled crawl updates the fixes; ClickUp catches up at the next check or crawl in the
+app.)
 Each list can go to any list in the space or a new one, and is remembered for the site. The panel
 says what it's about to do before it does it: *18 overview tasks, one per kind of problem: 1 in
 Errors and 17 in Warnings.*
@@ -207,8 +216,8 @@ always exact.
 ## Scheduled crawls
 
 **Schedules** keeps a list of crawls that run on their own — daily, weekly, weekdays or hourly.
-Each one measures speed with Lighthouse like any other crawl, can compare itself with its previous
-run, export the internal HTML table as CSV and write a PDF report, and it posts a notification when
+Each one measures speed with Lighthouse like any other crawl, updates the site's fixes, can compare
+itself with its previous run, export the internal HTML table as CSV and write a PDF report, and it posts a notification when
 it finishes.
 
 A schedule is a user LaunchAgent in `~/Library/LaunchAgents` that runs
@@ -225,8 +234,8 @@ crawl of a client site is best pointed at a machine that stays on.
 
 Everything Crawlspace keeps stays on your Mac, in your account:
 
-- **Where it's kept.** Crawls, schedules, settings and secrets live in
-  `~/Library/Application Support/Crawlspace`. The app makes that folder `0700` and creates
+- **Where it's kept.** Crawls, each site's fixes (`Worklists/`), schedules, settings and secrets
+  live in `~/Library/Application Support/Crawlspace`. The app makes that folder `0700` and creates
   everything in it readable by you alone, so other accounts on the same Mac can't open it.
   Passwords, cookies, custom headers and API tokens are in `secrets.json` (`0600`), never in the
   crawl packages or schedule files themselves.
@@ -235,8 +244,8 @@ Everything Crawlspace keeps stays on your Mac, in your account:
   the per-install sign-in token, which only your account can read; without it the server answers
   403. The only open endpoint is `/api/health`, which reports the version.
 - **What leaves the Mac.** No analytics or telemetry. Crawlspace only talks to: the sites you crawl
-  (and Chrome loading them for Lighthouse); ClickUp, when you export issues to it (titles, URLs and
-  page details, into your own workspace); GitHub, to check for and download updates (no account or
+  (and Chrome loading them for Lighthouse); ClickUp, when you export the overview to it (the kinds
+  of problem, how many there are and how to fix them, into your own workspace); GitHub, to check for and download updates (no account or
   token involved); and Google's Chrome for Testing download, once, if the Mac has no Chrome.
 - **Temporary files** — Lighthouse output, exports being built — go in your own temporary folder
   and are deleted when done.
@@ -264,11 +273,13 @@ cd Web && npm install && npm run dev
 ```
 
 then open the `http://localhost:5173/auth?t=…` link the server prints, which signs that browser in.
-Vite passes API calls through to the server. With the real app running on 7777, start the development copy with
-`--port 7790` and the interface with `CRAWLSPACE_DEV_SERVER=http://127.0.0.1:7790`. `CRAWLSPACE_HOME=/some/folder` keeps a development
-copy's crawls, secrets and settings apart from your real ones (and leaves the real launchd jobs
-alone); tests always get a throwaway folder of their own. For Lighthouse without the bundled runtime, set `CRAWLSPACE_NODE` and
-`CRAWLSPACE_LIGHTHOUSE_CLI` to a Node and a `lighthouse/cli/index.js` installed some other way.
+Vite passes API calls through to the server. With the real app running on 7777, start the
+development copy with `--port 7790` and the interface with
+`CRAWLSPACE_DEV_SERVER=http://127.0.0.1:7790`. `CRAWLSPACE_HOME=/some/folder` keeps a development
+copy's crawls, fixes, secrets and settings apart from your real ones (and leaves the real launchd
+jobs alone); tests always get a throwaway folder of their own. For Lighthouse without the bundled
+runtime, set `CRAWLSPACE_NODE` and `CRAWLSPACE_LIGHTHOUSE_CLI` to a Node and a
+`lighthouse/cli/index.js` installed some other way.
 
 A plain `swift build` embeds a placeholder page instead of the interface. To build the real app
 exactly as a release does:
@@ -301,7 +312,7 @@ Other commands: `summary <package>` (text or `--json`), `export <package> --out 
 [--top N | --url U]` to measure speed, `robots <url>…` to test URLs against a site's robots.txt,
 `render <url>` to see exactly what JavaScript changes on a page, `compare <baseline> <current>` to
 diff two crawls, `analyse <package>` to re-run the analysis, and `clickup` / `clickup-lists` to file
-issues as tasks.
+the overview into ClickUp.
 
 ## Tests
 
@@ -317,12 +328,13 @@ Packages/CrawlspaceKit/
   CrawlCore               config, URL normalisation, robots.txt (RFC 9309), HTTP fetching
   Parsing                 HTML extraction via libxml2, SERP pixel widths, content hashing
   Storage                 SQLite crawl packages, batched writer, table and overview queries
-  Audit                   issue catalogue (85 checks), per-page rules, post-crawl analysis
+  Audit                   issue catalogue (92 checks), per-page rules, post-crawl analysis
   Rendering               pool of offscreen WKWebViews for JavaScript rendering, report PDFs
   Integrations            ClickUp
   Lighthouse              finding or fetching Node, Lighthouse and Chrome; running and reading reports
   Crawler                 frontier, scheduling, robots cache, sitemaps, page processing
-  Export                  CSV, Excel, the HTML/PDF audit report, ClickUp tasks
+  Export                  fixes and change patterns, each site's worklist, CSV and Excel, the audit
+                          report and client summary, the ClickUp overview
   Compare                 crawl-to-crawl diffing over an attached baseline database
   Scheduling              schedule records, launchd agents, the headless scheduled run
   Server                  the local web server, menu-bar app, live events and self-updater
@@ -389,7 +401,7 @@ placeholder at the sizes that are missing — 64pt among them.
     stopped or hit its URL limit, in list or sitemap mode, and when more than half a catalogue would
     be flagged — that means the crawler can't see the links (a JavaScript product grid), not that
     the store forgot to link them. The Overview says so when that happens.
-  - ClickUp tasks for these issues are tagged `e-commerce`.
+  - Their ClickUp overview tasks are tagged `e-commerce`.
 - **Links that refuse a crawler aren't broken links.** Sites behind Cloudflare and similar
   services, research publishers and paywalled newspapers answer crawlers with 401, 402, 403, 406,
   429 or a bot challenge while serving people normally, and they can be most of the "broken"

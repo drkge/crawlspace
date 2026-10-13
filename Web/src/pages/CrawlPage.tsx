@@ -119,9 +119,9 @@ export default function CrawlPage() {
     error: (event) => toast(event.message, true),
   })
 
-  const tickFixes = async (keys: string[], ticked: boolean) => {
+  const markFixesDone = async (keys: string[], done: boolean) => {
     if (!fixes) return
-    await run(() => api.post(`${fixesPath(fixes.host)}/tick`, { keys, ticked }))
+    await run(() => api.post(`${fixesPath(fixes.host)}/done`, { keys, done }))
     loadFixes()
   }
 
@@ -293,7 +293,7 @@ export default function CrawlPage() {
             selected={selectedFix}
             checking={!!checking}
             onSelect={setSelectedFix}
-            onTick={tickFixes}
+            onMarkDone={markFixesDone}
             onCheck={checkFixes}
           />
         ) : fixView ? (
@@ -345,7 +345,7 @@ export default function CrawlPage() {
                   list={fixes}
                   itemKey={selectedFix}
                   checking={!!checking}
-                  onTick={tickFixes}
+                  onMarkDone={markFixesDone}
                   onCheck={checkFixes}
                   onSelect={setSelectedFix}
                 />

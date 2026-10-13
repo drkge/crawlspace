@@ -7,8 +7,8 @@ import Lighthouse
 import Rendering
 import Storage
 
-/// Runs one scheduled crawl start to finish: crawl, compare with the previous run, export, and
-/// record what happened.
+/// Runs one scheduled crawl start to finish: crawl, measure speed, update the site's fixes, compare
+/// with the previous run, export, and record what happened.
 public enum ScheduleRunner {
     public struct Result: Sendable {
         public var packageURL: URL
@@ -52,6 +52,13 @@ public enum ScheduleRunner {
                 if !measured.failures.isEmpty { summary += " (\(measured.failures.count) runs failed)" }
             } else {
                 summary += " · Lighthouse skipped: not set up yet"
+            }
+        }
+        // The site's fixes, as every crawl keeps them: what's new, and what's gone.
+        if config.mode != .list {
+            let changes = try Worklist.open(host: Worklist.host(of: config)).update(from: store, isCheck: false)
+            if changes.verified > 0 || changes.added > 0 {
+                summary += " · fixes: \(changes.added.formatted()) new, \(changes.verified.formatted()) verified"
             }
         }
         var result = Result(packageURL: packageURL, summary: summary)
