@@ -60,12 +60,12 @@ struct PasswordBody: Decodable {
 struct FixListDTO: Encodable, Sendable {
     var host: String
     var items: [Worklist.Item]
+    var kinds: [ClickUpOverview.Kind]
 }
 
-struct FixTrackingDTO: Encodable, Sendable {
-    var host: String
-    var tracking: Bool
-    var added: Int?
+struct CheckBody: Decodable, Sendable {
+    /// The fixes to check; every one marked done when left out.
+    var keys: [String]?
 }
 
 struct TickBody: Decodable, Sendable {

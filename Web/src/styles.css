@@ -421,6 +421,14 @@ label.check input {
   padding: 12px 10px 4px;
   font-size: 11px;
 }
+.sidebar h4 {
+  margin: 6px 10px 2px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
 .sidebar-item {
   display: flex;
   align-items: center;
@@ -1101,35 +1109,68 @@ table.tokens td.actions button + button {
 
 /* Fixes */
 
+.fixes-pane {
+  grid-template-rows: auto auto 1fr;
+}
+.fixes-summary {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.fixes-list {
+  overflow: auto;
+  min-height: 0;
+}
 .fix-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 12px;
-  border-top: 1px solid var(--border);
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border);
+  cursor: default;
+  font-size: 13px;
 }
-/* A grid item grows to fit its longest URL unless told it may shrink. */
-.fix-group {
-  min-width: 0;
+.fix-row:hover {
+  background: var(--bg-sunken);
 }
-.fix-group summary .hint {
-  margin-left: 8px;
+.fix-row.selected {
+  background: var(--bg-selected);
 }
-.fix-row .fix-name {
-  display: block;
+.fix-row .fix-name,
+.fixes-kind .fix-name {
   flex: 1;
   min-width: 0;
-  text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.fix-children {
-  padding-left: 28px;
+.fixes-overview {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  max-height: 40vh;
+  overflow: auto;
 }
-.fix-detail {
-  padding: 4px 16px 12px 40px;
-  overflow-x: auto;
+.fixes-progress {
+  width: 100%;
+}
+.fixes-kinds {
+  display: grid;
+  gap: 2px;
+}
+.fixes-kind {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.fixes-kind .count {
+  min-width: 70px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 .markdown p {
   margin: 6px 0;

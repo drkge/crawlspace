@@ -7,21 +7,21 @@ import Storage
 /// What goes into ClickUp: an overview, one task per kind of problem under its severity — *Errors ›
 /// H1: Multiple* — saying how many there are, how many are done, and how to fix them. The detail,
 /// every page and image and link, lives in the site's list of fixes in Crawlspace, where it's ticked
-/// off and checked; a task here closes by itself once every fix of its kind is confirmed.
+/// off and checked; a task here closes by itself once every fix of its kind is verified.
 public enum ClickUpOverview {
     /// One kind of problem, as the overview counts it from the site's fixes.
-    public struct Kind: Sendable, Hashable {
+    public struct Kind: Sendable, Hashable, Codable {
         public var code: String
         public var title: String
         public var severity: IssueSeverity
         public var total = 0
-        public var confirmed = 0
+        public var verified = 0
         public var ticked = 0
-        public var lastConfirmedBy: String?
-        public var lastConfirmedAt: Date?
+        public var lastVerifiedBy: String?
+        public var lastVerifiedAt: Date?
 
-        public var toDo: Int { total - confirmed - ticked }
-        public var isDone: Bool { total > 0 && confirmed == total }
+        public var toDo: Int { total - verified - ticked }
+        public var isDone: Bool { total > 0 && verified == total }
     }
 
     /// The lists an overview is filed into: one per severity.
@@ -38,11 +38,11 @@ public enum ClickUpOverview {
             kind.severity = min(kind.severity, item.severity)
             kind.total += 1
             switch item.status {
-            case .confirmed:
-                kind.confirmed += 1
-                if let at = item.confirmedAt, kind.lastConfirmedAt.map({ at > $0 }) ?? true {
-                    kind.lastConfirmedAt = at
-                    kind.lastConfirmedBy = item.confirmedBy
+            case .verified:
+                kind.verified += 1
+                if let at = item.verifiedAt, kind.lastVerifiedAt.map({ at > $0 }) ?? true {
+                    kind.lastVerifiedAt = at
+                    kind.lastVerifiedBy = item.verifiedBy
                 }
             case .ticked: kind.ticked += 1
             case .open, .reopened: break
@@ -67,8 +67,8 @@ public enum ClickUpOverview {
     static func markdown(_ kind: Kind, host: String, appAddress: String) -> String {
         var progress = "**\(kind.toDo.formatted()) to fix**"
         if kind.ticked > 0 { progress += ", \(kind.ticked.formatted()) done and waiting for a check" }
-        progress += ", \(kind.confirmed.formatted()) confirmed fixed — \(kind.total.formatted()) found on \(host) so far."
-        if kind.isDone { progress = "**All \(kind.total.formatted()) confirmed fixed** on \(host)." }
+        progress += ", \(kind.verified.formatted()) verified fixed — \(kind.total.formatted()) found on \(host) so far."
+        if kind.isDone { progress = "**All \(kind.total.formatted()) verified fixed** on \(host)." }
         var parts = [progress]
         if kind.code == ClientSummaryBuilder.productCards {
             parts.append("Product cards link to products through a collection's address (/collections/…/products/…) rather than the product's own, so each click takes an extra hop.")
@@ -78,10 +78,10 @@ public enum ClickUpOverview {
             parts.append("**How to fix:** \(definition.howToFix)")
         }
         parts.append("Every page, image and link involved, with what's wrong where, is in **Crawlspace › Fixes** for \(host): "
-            + "[open the list](\(appAddress)/sites/\(host)/fixes) on the Mac that runs Crawlspace. Tick fixes there as they're done "
-            + "and check them; this task closes once they're all confirmed.")
-        if let by = kind.lastConfirmedBy, let at = kind.lastConfirmedAt {
-            parts.append("Last confirmed by *\(by)* on \(at.formatted(date: .long, time: .omitted)).")
+            + "[open the list](\(appAddress)/sites/\(host)/fixes) on the Mac that runs Crawlspace. Mark fixes done there as they're made "
+            + "and check them; this task closes once they're all verified.")
+        if let by = kind.lastVerifiedBy, let at = kind.lastVerifiedAt {
+            parts.append("Last verified by *\(by)* on \(at.formatted(date: .long, time: .omitted)).")
         }
         return parts.joined(separator: "\n\n")
     }
@@ -165,8 +165,8 @@ public enum ClickUpOverview {
                 let before = ClickUpExporter.footer(of: task.description)
                 if kind.isDone, !task.isClosed, let closed = detail.closedStatus {
                     try await client.updateTask(id: task.id, status: closed, markdown: markdown)
-                    try await client.comment(taskID: task.id, text: "All \(kind.total.formatted()) confirmed fixed"
-                        + (kind.lastConfirmedBy.map { " by \($0)" } ?? "") + ".")
+                    try await client.comment(taskID: task.id, text: "All \(kind.total.formatted()) verified fixed"
+                        + (kind.lastVerifiedBy.map { " by \($0)" } ?? "") + ".")
                     result.tasksClosed += 1
                 } else if !kind.isDone, task.isClosed, let open = detail.openStatus {
                     try await client.updateTask(id: task.id, status: open, markdown: markdown)

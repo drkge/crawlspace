@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { api, crawlPath, type Bucket, type Counts, type CrawlState, type Issue, type MeasuredPage } from '../api'
 import { duration, number, plural } from '../hooks'
 import { ScoreGauge, Severity } from '../ui'
+import { FixesSidebar, type FixList } from './Fixes'
 
 const pageFilters: [string, string][] = [
   ['filter:internalHTML', 'Internal HTML'],
@@ -24,19 +25,33 @@ const severities = [
   ['notice', 'Notices'],
 ] as const
 
-/** Overview, the page tables, every issue found by severity, custom extraction and the reports. */
-export function Sidebar(props: { counts: Counts | null; selection: string; onSelect: (selection: string) => void }) {
+/**
+ * Overview, the site's fixes, the page tables, every issue found by severity, custom extraction
+ * and the reports.
+ */
+export function Sidebar(props: {
+  counts: Counts | null
+  fixes: FixList | null
+  selection: string
+  onSelect: (selection: string) => void
+}) {
   const { counts } = props
-  const item = (key: string, label: ReactNode, count?: number, icon?: ReactNode) => (
-    <button key={key} className={`sidebar-item ${props.selection === key ? 'selected' : ''}`} onClick={() => props.onSelect(key)} title={typeof label === 'string' ? label : undefined}>
+  const item = (key: string, label: ReactNode, count?: ReactNode, icon?: ReactNode, title?: string) => (
+    <button
+      key={key}
+      className={`sidebar-item ${props.selection === key ? 'selected' : ''}`}
+      onClick={() => props.onSelect(key)}
+      title={title ?? (typeof label === 'string' ? label : undefined)}
+    >
       {icon}
       <span className="label">{label}</span>
-      {count !== undefined && <span className="count">{number(count)}</span>}
+      {count !== undefined && <span className="count">{typeof count === 'number' ? number(count) : count}</span>}
     </button>
   )
   return (
     <aside className="sidebar">
       {item('overview', 'Overview')}
+      <FixesSidebar list={props.fixes} selection={props.selection} item={item} />
       <h3>All pages</h3>
       {pageFilters.map(([key, label]) => item(key, label, counts?.filters[key.slice(7)]))}
       {severities.map(([severity, title]) => {

@@ -127,11 +127,14 @@ or web page. They download through the browser.
 
 ## Fixes
 
-**Fixes** (on a crawl's toolbar, or beside the site on the start page) keeps a site's list of things to
-fix on this Mac, across crawls. It's started from a crawl the first time; after that every full crawl
-of the site updates it. Each fix is one change: a broken
-address and every link to it, an image file, a setting, a page and its issues, and so on, each with
-what's wrong where and how to fix it.
+Every crawl keeps its site's list of **fixes** up to date, on this Mac and across crawls, and any crawl
+of the site shows it: the **Fixes** section at the top of the crawl's sidebar. **All fixes** gives
+an overview — how many are verified, each kind of problem with its progress — and the full list;
+below it, each kind of problem, by severity, with how many of its fixes are verified.
+
+A fix is one change, with every page it touches: a broken address and every link to it, an image
+file, a setting, a change to a template, a page and its issues. Selecting one shows, in the
+inspector, what's wrong where and how to fix it.
 
 **Change patterns.** Broken and redirecting addresses that changed for the same reason are one fix,
 not one per address: removed pages all sent to the home page, "®" or a "-1" taken out of handles, a
@@ -140,13 +143,15 @@ still in collections, and a theme snippet writing a Liquid error into its links.
 addresses, where they're linked from, and the one thing to change. It takes three addresses sharing
 a reason to make a pattern — a theme error counts even once — and anything else keeps its own fix.
 
-Tick a fix once it's done, then **Check**: Crawlspace crawls just the pages involved — the page, the
-broken address and the pages linking to it, or ten pages that carry a change made in the theme — and
-confirms each ticked fix, or marks it *still there*. It takes seconds rather than a full crawl, and
-each check is kept in Recent Crawls as "<site> fix check <date>". A full crawl confirms anything else
-that has gone: a page's issues once the page has been
-crawled again, anything else only from a crawl of the whole site. Speed problems are confirmed by the
-next speed check, not by a quick one. Anything that comes back is reopened. ClickUp holds an overview that follows this list (below).
+**Mark done, then check.** Mark a fix done once it's made, then check it: **Check This Fix** in the
+inspector, or **Check N Done** for every fix marked done in the list on screen. A check crawls just
+the pages involved — the page; a broken address and the pages linking to it; ten pages that carry a
+change made in the theme — and marks each fix **Verified**, or **Still there**. It takes seconds
+rather than a full crawl, and each check is kept in Recent Crawls as "<site> fix check <date>". A
+full crawl verifies anything else that has gone: a page's issues once the page has been crawled
+again, anything else only from a crawl of the whole site. Speed problems are verified by the next
+speed check, not a quick one. Anything that comes back is reopened. ClickUp holds an overview that
+follows this list (below).
 
 ## Filing issues into ClickUp
 
@@ -155,7 +160,7 @@ problem, in an Errors, Warnings or Notices list in a Crawlspace folder of the sp
 *Errors › Page Titles: Missing*, *Warnings › Page Titles: Too Long*. Each says how many are left to
 fix, how many are done and waiting for a check, and how many are confirmed fixed; what the problem
 is and how to fix it; and where the detail is. The detail — every page, image and link, with what's
-wrong where — is in [Fixes](#fixes), where it's ticked off and checked. A pair measured two ways (a
+wrong where — is in [Fixes](#fixes), where it's marked done and checked. A pair measured two ways (a
 title over 60 characters and 561 pixels), and a broken address with the links to it, count as one.
 Priority comes from the severity: errors Urgent, warnings High, notices Low.
 

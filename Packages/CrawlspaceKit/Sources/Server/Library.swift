@@ -126,11 +126,14 @@ actor Library {
     }
 
     /// Crawls just the pages behind a site's ticked fixes, with the settings of its latest crawl,
-    /// so they can be confirmed in minutes rather than by crawling the whole site again.
-    func check(host: String) async throws -> CrawlSession {
-        let urls = try Worklist.open(host: host).checkURLs()
+    /// so they can be verified in minutes rather than by crawling the whole site again.
+    func check(host: String, keys asked: [String]? = nil) async throws -> CrawlSession {
+        let worklist = try Worklist.open(host: host)
+        let keys = try worklist.checkKeys(asked)
+        let urls = try worklist.checkURLs(for: keys)
         guard !urls.isEmpty else {
-            throw ServerError.badRequest("Tick the fixes you've made first: there's nothing to check yet.")
+            throw ServerError.badRequest(asked == nil ? "Mark the fixes you've made as done first: there's nothing to check yet."
+                                                      : "That fix can only be verified by a full crawl or a speed check.")
         }
         let latest = await list().first { $0.site == host && $0.readable && !$0.name.contains(" fix check ") }
         guard let latest, var config = CrawlStore.summary(of: try packageURL(for: latest.id))?.config else {
@@ -146,6 +149,7 @@ actor Library {
             .appendingPathExtension(CrawlStore.packageExtension)
         let store = try CrawlStore.create(at: url, config: config)
         try store.setMeta("check_for", host)
+        try store.setMeta(Worklist.checkKeysMeta, String(decoding: try JSONEncoder().encode(keys), as: UTF8.self))
         try store.close()
         let session = try session(Self.id(forLibraryPackage: url))
         try await session.start()
@@ -192,8 +196,7 @@ actor Library {
                 id: id, name: url.deletingPathExtension().lastPathComponent,
                 site: summary?.site ?? "", startURL: summary?.startURL ?? "",
                 status: summary?.status ?? .new, crawled: summary?.crawled ?? 0,
-                modified: modified, isRunning: running, readable: summary != nil,
-                tracking: summary.map { Worklist.exists(for: $0.site) } ?? false
+                modified: modified, isRunning: running, readable: summary != nil
             ))
         }
         return items.sorted { $0.modified > $1.modified }

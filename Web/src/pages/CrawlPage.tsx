@@ -4,6 +4,7 @@ import { api, crawlPath, downloadFrom, type Counts, type CrawlConfig, type Crawl
 import ConfigDialog from '../components/ConfigDialog'
 import { IssueBanner, Overview, Sidebar, StatusBar } from '../components/CrawlParts'
 import { ClickUpDialog, CompareDialog, ReportDialog } from '../components/Dialogs'
+import { FixInspector, FixesPane, fixesPath, type FixList } from '../components/Fixes'
 import Inspector from '../components/Inspector'
 import URLTable from '../components/URLTable'
 import { number, useDebounced, useEvents, useStoredState } from '../hooks'
@@ -21,6 +22,9 @@ export default function CrawlPage() {
   const [state, setState] = useState<CrawlState | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [counts, setCounts] = useState<Counts | null>(null)
+  const [fixes, setFixes] = useState<FixList | null>(null)
+  const [selectedFix, setSelectedFix] = useState<string | null>(null)
+  const [checking, setChecking] = useState<string | null>(null)
   const [rows, setRows] = useState<RowList | null>(null)
   const [version, setVersion] = useState(0)
   const [search, setSearch] = useState('')
@@ -41,19 +45,23 @@ export default function CrawlPage() {
     [path],
   )
   const loadCounts = useCallback(() => api.get<Counts>(`${path}/counts`).then(setCounts).catch(() => {}), [path])
+  const loadFixes = useCallback(() => api.get<FixList>(`${path}/fixes`).then(setFixes).catch(() => {}), [path])
 
   useEffect(() => {
     setState(null)
     setCounts(null)
     setRows(null)
     setSelected(null)
+    setFixes(null)
+    setSelectedFix(null)
     loadState()
     loadCounts()
-  }, [loadState, loadCounts])
+    loadFixes()
+  }, [loadState, loadCounts, loadFixes])
 
   // Rows for the table on screen. Refetched when the crawl's data moves on.
   useEffect(() => {
-    if (selection === 'overview') {
+    if (selection === 'overview' || selection.startsWith('fixes:')) {
       setRows(null)
       return
     }
@@ -85,6 +93,7 @@ export default function CrawlPage() {
       lighthouse: (progress) =>
         setState((current) => (current ? { ...current, lighthouse: { ...current.lighthouse, running: true, progress } } : current)),
       changed: dataChanged,
+      worklist: loadFixes,
       error: (event) => toast(event.message, true),
     },
     () => {
@@ -97,7 +106,34 @@ export default function CrawlPage() {
     setParams(next === 'overview' ? {} : { view: next })
     setSort(null)
     setSelected(null)
+    setSelectedFix(null)
   }
+
+  // A check is a crawl of its own; when it has verified what it could, the fixes are read again.
+  useEvents(checking ? `${crawlPath(checking)}/events` : null, {
+    worklist: (changes: { verified: number; reopened: number }) => {
+      setChecking(null)
+      toast(`Check finished: ${changes.verified} verified, ${changes.reopened} still there.`)
+      loadFixes()
+    },
+    error: (event) => toast(event.message, true),
+  })
+
+  const tickFixes = async (keys: string[], ticked: boolean) => {
+    if (!fixes) return
+    await run(() => api.post(`${fixesPath(fixes.host)}/tick`, { keys, ticked }))
+    loadFixes()
+  }
+
+  const checkFixes = async (keys?: string[]) => {
+    if (!fixes) return
+    const started = await run(() => api.post<{ id: string }>(`${fixesPath(fixes.host)}/check`, keys ? { keys } : {}))
+    if (started) {
+      setChecking(started.id)
+      toast(keys?.length === 1 ? 'Checking the fix: crawling just the pages it involves.' : 'Checking the done fixes: crawling just the pages involved.')
+    }
+  }
+  const fixView = selection.startsWith('fixes:') ? selection.slice(6) : null
 
   const control = (action: string) => run(async () => setState(await api.post<CrawlState>(`${path}/${action}`)))
 
@@ -166,14 +202,6 @@ export default function CrawlPage() {
 
   const issueCount = rows?.issue ? (counts?.issues.find((entry) => entry.issue.code === rows.issue!.code)?.count ?? rows.ids.length) : 0
   const busy = state.isRunning || state.isPaused
-
-  // The site's list of fixes, started from this crawl the first time.
-  const openFixes = async () => {
-    const found = await run(() => api.get<{ host: string; tracking: boolean }>(`${path}/fixes`))
-    if (!found) return
-    if (!found.tracking && !(await run(() => api.post(`${path}/fixes/track`)))) return
-    navigate(`/sites/${encodeURIComponent(found.host)}/fixes`)
-  }
 
   const exportMenu = (
     <Menu label="Export">
@@ -250,9 +278,6 @@ export default function CrawlPage() {
           </button>
           <button onClick={() => run(() => api.post(`${path}/reveal`))}>Show in Finder</button>
         </Menu>
-        <button title="Tick off this site's fixes and check them" onClick={openFixes}>
-          Fixes
-        </button>
         {exportMenu}
         <button className="plain" title="Show or hide the inspector" onClick={() => setShowInspector(!showInspector)}>
           ◧
@@ -260,8 +285,20 @@ export default function CrawlPage() {
       </div>
 
       <div className="crawl-body" style={{ gridTemplateColumns: `250px 1fr ${showInspector ? `${inspectorWidth}px` : ''}` }}>
-        <Sidebar counts={counts} selection={selection} onSelect={select} />
-        {selection === 'overview' ? (
+        <Sidebar counts={counts} fixes={fixes} selection={selection} onSelect={select} />
+        {fixView && fixes ? (
+          <FixesPane
+            list={fixes}
+            kind={fixView}
+            selected={selectedFix}
+            checking={!!checking}
+            onSelect={setSelectedFix}
+            onTick={tickFixes}
+            onCheck={checkFixes}
+          />
+        ) : fixView ? (
+          <div className="empty">Loading the fixes…</div>
+        ) : selection === 'overview' ? (
           <Overview
             counts={counts}
             state={state}
@@ -302,6 +339,20 @@ export default function CrawlPage() {
         {showInspector && (
           <aside className="inspector">
             <div className="divider" onMouseDown={startInspectorResize} />
+            {fixView ? (
+              fixes && selectedFix ? (
+                <FixInspector
+                  list={fixes}
+                  itemKey={selectedFix}
+                  checking={!!checking}
+                  onTick={tickFixes}
+                  onCheck={checkFixes}
+                  onSelect={setSelectedFix}
+                />
+              ) : (
+                <div className="empty">Select a fix to see what to do.</div>
+              )
+            ) : (
             <Inspector
               crawlID={id}
               rowID={selected}
@@ -310,6 +361,7 @@ export default function CrawlPage() {
               onSelectURL={selectURL}
               onRunLighthouse={(ids) => runLighthouse({ rowIds: ids })}
             />
+            )}
           </aside>
         )}
       </div>

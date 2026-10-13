@@ -248,7 +248,8 @@ actor CrawlSession {
             guard let config = try? store.loadConfig() else { return }
             let checkFor = try? store.meta("check_for")
             let host = checkFor ?? Worklist.host(of: config)
-            guard checkFor != nil || (config.mode != .list && Worklist.exists(for: host)) else { return }
+            // Every crawl of a site keeps its fixes up to date; a list of URLs isn't the site.
+            guard checkFor != nil || config.mode != .list else { return }
             let worklist: Worklist
             do {
                 worklist = try Worklist.open(host: host)
@@ -259,7 +260,7 @@ actor CrawlSession {
                 return
             }
             // The ClickUp overview follows, when the site has been exported there: tasks close as
-            // their fixes are confirmed, and reopen if they come back.
+            // their fixes are verified, and reopen if they come back.
             let settings = SettingsStore.load()
             guard let destination = settings.clickUpDestinations[host] ?? settings.clickUpDestinations[MiscRoutes.site(of: config)],
                   let token = ClickUpClient.storedToken() else { return }
