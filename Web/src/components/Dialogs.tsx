@@ -354,36 +354,29 @@ interface ListTarget {
   listName: string
 }
 
-/** The lists issues are filed into, in the order the panel shows them. */
-const topics = ['links', 'images', 'siteSettings', 'duplicates', 'speed', 'products', 'errors', 'warnings', 'notices'] as const
-type Topic = (typeof topics)[number]
-const topicNames: Record<Topic, string> = {
-  links: 'Links',
-  images: 'Images',
-  siteSettings: 'Site settings',
-  duplicates: 'Duplicates',
-  speed: 'Speed',
-  products: 'Products',
-  errors: 'Errors',
-  warnings: 'Warnings',
-  notices: 'Notices',
+/** A list issues are filed into, as the server describes it for this crawl. */
+interface Topic {
+  id: string
+  label: string
+  hint: string
 }
-const topicHints: Record<Topic, string> = {
-  links: 'A task per broken or redirecting URL, with every page linking to it, and per link in the theme.',
-  images: 'A task per image, with every page showing it.',
-  siteSettings: 'A task per setting, such as a security header, rather than per page.',
-  duplicates: 'A task per group of pages sharing a title, description, H1 or content.',
-  speed: 'A task per template Lighthouse measured.',
-  products: 'A task per product page, with what its data is missing.',
-  errors: 'A task per page, with the rest of its errors.',
-  warnings: 'A task per page, with the rest of its warnings.',
-  notices: 'A task per page, with the rest of its notices.',
-}
+/** Until the crawl says otherwise: the lists for a site that isn't a Shopify store. */
+const standardTopics: Topic[] = [
+  { id: 'links', label: 'Links', hint: 'A task per broken or redirecting URL, with every page linking to it, and per link in the theme.' },
+  { id: 'images', label: 'Images', hint: 'A task per image, with every page showing it.' },
+  { id: 'siteSettings', label: 'Site settings', hint: 'A task per setting, such as a security header, rather than per page.' },
+  { id: 'duplicates', label: 'Duplicates', hint: 'A task per group of pages sharing a title, description, H1 or content.' },
+  { id: 'speed', label: 'Speed', hint: 'A task per template Lighthouse measured.' },
+  { id: 'products', label: 'Products', hint: 'A task per product page, with what its data is missing.' },
+  { id: 'errors', label: 'Errors', hint: 'A task per page, with the rest of its errors.' },
+  { id: 'warnings', label: 'Warnings', hint: 'A task per page, with the rest of its warnings.' },
+  { id: 'notices', label: 'Notices', hint: 'A task per page, with the rest of its notices.' },
+]
 const severityNames: Record<SeverityName, string> = { error: 'Errors', warning: 'Warnings', notice: 'Notices' }
-const standardTarget = (topic: Topic): ListTarget => ({ folderName: 'Crawlspace', listName: topicNames[topic] })
+const standardTarget = (topic: Topic): ListTarget => ({ folderName: 'Crawlspace', listName: topic.label })
 const pathOf = (target: { folderName?: string | null; listName: string }) => [target.folderName, target.listName].filter(Boolean).join(' › ')
 const same = (a?: string | null, b?: string | null) => (a ?? '').trim().toLowerCase() === (b ?? '').trim().toLowerCase()
-const standardTargets = () => Object.fromEntries(topics.map((topic) => [topic, standardTarget(topic)])) as Record<Topic, ListTarget>
+const standardTargets = (topics: Topic[]) => Object.fromEntries(topics.map((topic) => [topic.id, standardTarget(topic)])) as Record<string, ListTarget>
 
 /**
  * Files the crawl's issues into ClickUp, a task per thing to fix: choose a space, then where each
@@ -400,10 +393,13 @@ export function ClickUpDialog({ crawlID, onClose }: { crawlID: string; onClose: 
   const [spaces, setSpaces] = useState<SpaceChoice[] | null>(null)
   const [spaceID, setSpaceID] = useState('')
   const [lists, setLists] = useState<ListChoice[] | null>(null)
-  const [targets, setTargets] = useState<Record<Topic, ListTarget>>(standardTargets)
-  const [remembered, setRemembered] = useState<{ spaceID: string; targets: Partial<Record<Topic, ListTarget>> } | null>(null)
+  const [topics, setTopics] = useState<Topic[]>(standardTopics)
+  const [shopify, setShopify] = useState(false)
+  const [targets, setTargets] = useState<Record<string, ListTarget>>(() => standardTargets(standardTopics))
+  const [remembered, setRemembered] = useState<{ spaceID: string; targets: Partial<Record<string, ListTarget>> } | null>(null)
   const [severities, setSeverities] = useState<SeverityName[]>(['error', 'warning'])
-  const [chosen, setChosen] = useState<Topic[]>([...topics])
+  // Every list ticked, across both layouts; the ones this crawl files into are picked out below.
+  const [chosen, setChosen] = useState<string[]>(standardTopics.map((topic) => topic.id))
   const [tag, setTag] = useState('')
   const [plan, setPlan] = useState('')
   const [busy, setBusy] = useState(false)
@@ -417,7 +413,7 @@ export function ClickUpDialog({ crawlID, onClose }: { crawlID: string; onClose: 
       setSettings(settings)
       setHasToken(tokens.some((entry) => entry.kind === 'clickup' && !!entry.masked))
       setSeverities(settings.clickUpSeverities)
-      setChosen(topics.filter((topic) => settings.clickUpTopics.includes(topic)))
+      setChosen(settings.clickUpTopics)
     })
   }, [])
 
@@ -425,11 +421,17 @@ export function ClickUpDialog({ crawlID, onClose }: { crawlID: string; onClose: 
   const loadSpaces = async () => {
     const [found, saved] = await Promise.all([
       run(() => api.get<SpaceChoice[]>('/api/clickup/spaces')),
-      api.get<{ site: string; destination?: { spaceID: string; spaceName: string; targets: Partial<Record<Topic, ListTarget>> } }>(
-        `${crawlPath(crawlID)}/clickup/destination`,
-      ),
+      api.get<{
+        site: string
+        shopify: boolean
+        topics: Topic[]
+        destination?: { spaceID: string; spaceName: string; targets: Partial<Record<string, ListTarget>> }
+      }>(`${crawlPath(crawlID)}/clickup/destination`),
     ])
     setSite(saved.site)
+    setShopify(saved.shopify)
+    setTopics(saved.topics)
+    setTargets(standardTargets(saved.topics))
     if (!found) return
     setSpaces(found)
     if (!found.length) toast('That token works, but there are no spaces in the workspace.', true)
@@ -460,25 +462,26 @@ export function ClickUpDialog({ crawlID, onClose }: { crawlID: string; onClose: 
         setLists(found)
         const saved = remembered?.spaceID === spaceID ? remembered.targets : {}
         const pick = (topic: Topic): ListTarget => {
-          const previous = saved[topic]
+          const previous = saved[topic.id]
           const existing =
             (previous?.listID && found.find((list) => list.id === previous.listID)) ||
             (previous && found.find((list) => same(list.folderName, previous.folderName) && same(list.listName, previous.listName)))
           if (existing) return { listID: existing.id, folderName: existing.folderName ?? null, listName: existing.listName }
           if (previous) return { folderName: previous.folderName, listName: previous.listName }
-          const standard = found.find((list) => same(list.folderName, 'Crawlspace') && same(list.listName, topicNames[topic]))
+          const standard = found.find((list) => same(list.folderName, 'Crawlspace') && same(list.listName, topic.label))
           return standard ? { listID: standard.id, folderName: 'Crawlspace', listName: standard.listName } : standardTarget(topic)
         }
-        setTargets(Object.fromEntries(topics.map((topic) => [topic, pick(topic)])) as Record<Topic, ListTarget>)
+        setTargets(Object.fromEntries(topics.map((topic) => [topic.id, pick(topic)])) as Record<string, ListTarget>)
       })
       .catch(() => setLists([]))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spaceID])
 
-  const setTarget = (topic: Topic, target: ListTarget) => setTargets({ ...targets, [topic]: target })
+  const setTarget = (topic: Topic, target: ListTarget) => setTargets({ ...targets, [topic.id]: target })
   const space = spaces?.find((entry) => entry.id === spaceID)
   const destination = { spaceID, spaceName: space?.name ?? '', targets }
-  const request = { destination, severities, topics: chosen, extraTag: tag }
+  const filing = topics.filter((topic) => chosen.includes(topic.id))
+  const request = { destination, severities, topics: filing.map((topic) => topic.id), extraTag: tag }
   const requestKey = JSON.stringify(request)
   useEffect(() => {
     if (!settings) return
@@ -518,7 +521,7 @@ export function ClickUpDialog({ crawlID, onClose }: { crawlID: string; onClose: 
           </button>
           <button
             className="primary"
-            disabled={busy || !hasToken || !spaceID || lists === null || !severities.length || !chosen.length || chosen.some((topic) => !targets[topic].listName.trim())}
+            disabled={busy || !hasToken || !spaceID || lists === null || !severities.length || !filing.length || filing.some((topic) => !targets[topic.id]?.listName.trim())}
             onClick={exportNow}
           >
             {busy ? 'Filing…' : 'Export to ClickUp'}
@@ -559,15 +562,21 @@ export function ClickUpDialog({ crawlID, onClose }: { crawlID: string; onClose: 
           <fieldset>
             <legend>What to file, and where</legend>
             {spaceID && lists === null && <p className="hint">Reading the lists in {space?.name}…</p>}
+            {shopify && (
+              <p className="hint">
+                A Shopify store: pages are filed by kind, each with its issues as subtasks, and issues the theme makes on most pages
+                of a kind go in one template task.
+              </p>
+            )}
             {topics.map((topic) => {
-              const target = targets[topic]
+              const target = targets[topic.id] ?? standardTarget(topic)
               const isNew = !target.listID
-              const on = chosen.includes(topic)
+              const on = chosen.includes(topic.id)
               return (
-                <div className="severity-row" key={topic}>
-                  <label className="check" title={topicHints[topic]}>
-                    <input type="checkbox" checked={on} onChange={() => toggle(chosen, topic, setChosen)} />
-                    {topicNames[topic]}
+                <div className="severity-row" key={topic.id}>
+                  <label className="check" title={topic.hint}>
+                    <input type="checkbox" checked={on} onChange={() => toggle(chosen, topic.id, setChosen)} />
+                    {topic.label}
                   </label>
                   <div className="stack" style={{ gap: 6 }}>
                     <select
@@ -606,7 +615,7 @@ export function ClickUpDialog({ crawlID, onClose }: { crawlID: string; onClose: 
                         />
                       </div>
                     )}
-                    {on && <span className="hint">{topicHints[topic]}</span>}
+                    {on && <span className="hint">{topic.hint}</span>}
                     {on && isNew && spaceID && lists !== null && (
                       <span className="hint">
                         Made in {space?.name} when you export

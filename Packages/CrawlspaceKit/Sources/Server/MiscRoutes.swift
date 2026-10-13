@@ -167,7 +167,12 @@ struct MiscRoutes {
         router.get("api/crawls/:id/clickup/destination") { _, context in
             let store = try await library.session(context.parameters.string("id")).store
             let site = Self.site(of: try store.loadConfig())
-            return JSON(ClickUpDestinationDTO(site: site, destination: SettingsStore.load().clickUpDestinations[site]))
+            let shopify = ShopifyProfile.isStore(try store.loadConfig())
+            let topics = ClickUpTopic.topics(shopify: shopify).map {
+                ClickUpTopicDTO(id: $0.rawValue, label: $0.label, hint: $0.hint(shopify: shopify))
+            }
+            return JSON(ClickUpDestinationDTO(site: site, destination: SettingsStore.load().clickUpDestinations[site],
+                                              topics: topics, shopify: shopify))
         }
 
         router.post("api/crawls/:id/clickup/plan") { request, context in
@@ -337,12 +342,18 @@ enum ClickUpPlan {
         let topics = Settings.topics(request.topics)
         let units = try ClickUpUnitBuilder.units(store: store, severities: Settings.severities(request.severities), topics: topics)
         guard !units.isEmpty else { return "Nothing to file at these severities." }
-        let lists = Set(units.map(\.topic)).count
-        let csvs = units.filter { !$0.countsIssues && $0.pages.count > 200 }.count
-        var text = "\(units.count.formatted()) \(units.count == 1 ? "task" : "tasks") across \(lists) \(lists == 1 ? "list" : "lists")"
+        let filed = units.filter { !$0.heldOpen }
+        guard !filed.isEmpty else { return "Nothing to file at these severities." }
+        let lists = Set(filed.map(\.topic)).count
+        let subtasks = filed.reduce(0) { $0 + $1.subtasks.count }
+        let csvs = filed.filter { !$0.countsIssues && $0.pages.count > 200 }.count
+            + filed.flatMap(\.subtasks).filter { $0.pages.count > 200 }.count
+        var text = "\(filed.count.formatted()) \(filed.count == 1 ? "task" : "tasks")"
+        if subtasks > 0 { text += " and \(subtasks.formatted()) \(subtasks == 1 ? "subtask" : "subtasks")" }
+        text += " across \(lists) \(lists == 1 ? "list" : "lists")"
         if csvs > 0 { text += ", \(csvs) CSV \(csvs == 1 ? "attachment" : "attachments")" }
         text += "."
-        if let duration = estimate(requests: units.count + csvs + 2 * lists) {
+        if let duration = estimate(requests: filed.count + subtasks + csvs + 2 * lists) {
             text += " About \(duration) on ClickUp's smallest plan, quicker on the larger ones."
         }
         return text

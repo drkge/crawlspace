@@ -143,6 +143,19 @@ a list of its own, in a Crawlspace folder in the space you choose:
 | **Products** | product page, with what its data is missing |
 | **Errors**, **Warnings**, **Notices** | page, with the rest of its issues listed in the task |
 
+**On a Shopify store** the pages are filed by kind instead of by severity, so a store can be worked
+through page by page: **Products**, **Collections** (paginated pages included), **Pages**, **Blog
+posts** and **Other pages** (home, cart, search, policies), beside Links, Images, Site settings and
+Duplicates. Each page is one task with its issues, at every severity chosen, as subtasks, each with
+what's wrong there and how to fix it, and the page's priority taken from its worst. An issue the theme
+makes (a missing H1, missing product schema, a speed problem Lighthouse measured…) that's on at
+least 80% of a template's pages, and ten or more, is one **template task** instead (*Product
+template*), with the issue as a subtask listing every page, and it's left off the pages themselves.
+Collection copies of products (`/collections/…/products/…`) aren't filed page by page: they're
+counted in the product-card task and go when it's fixed. Images are grouped by file, so one picture
+Shopify serves at several sizes is one task. Lists from an earlier Shopify export by severity
+(Errors, Warnings, Notices) are no longer updated: archive them after the first export.
+
 A link counts as part of the theme when it's on ten or more pages, or on several in the navigation,
 header, footer or sidebar; its task says so (*Start here: 312 of these 340 pages carry it in the
 footer*). Each task lists what's wrong, where, and how to fix it, with a table of the pages it
