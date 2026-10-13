@@ -70,7 +70,9 @@ public enum ClientSummaryBuilder {
             case .setting, .link, .template: true
             default: false
             }
-            for code in unit.codes where !ClickUpUnitBuilder.linkSourceCodes.contains(code) {
+            // A pair measured two ways is one problem, counted under the worse of the two.
+            let codes = Set(unit.codes.map { ClickUpUnitBuilder.pair(of: $0)?.primary ?? $0 })
+            for code in codes where !ClickUpUnitBuilder.linkSourceCodes.contains(code) {
                 guard let definition = IssueCatalogue.definition(for: code) else { continue }
                 var kind = byCode[code] ?? Kind(code: code, severity: severity(of: definition),
                                                 area: area(of: definition, in: unit.topic))
@@ -406,13 +408,13 @@ public enum ClientSummaryBuilder {
         "title_missing": "has no page title",
         "title_multiple": "has more than one page title",
         "title_over_60_characters": "has a page title too long for Google to show in full",
-        "title_over_561_pixels": "has a page title too wide for Google to show in full",
+        "title_over_561_pixels": "has a page title too long for Google to show in full",
         "title_below_30_characters": "has a very short page title",
         "title_same_as_h1": "repeats its heading as its page title",
         "meta_description_missing": "has no search description",
         "meta_description_multiple": "has more than one search description",
         "meta_description_over_155_characters": "has a search description too long for Google to show in full",
-        "meta_description_over_985_pixels": "has a search description too wide for Google to show in full",
+        "meta_description_over_985_pixels": "has a search description too long for Google to show in full",
         "meta_description_below_70_characters": "has a very short search description",
         "h1_missing": "has no main heading",
         "h1_multiple": "has more than one main heading",
@@ -427,6 +429,7 @@ public enum ClientSummaryBuilder {
         "canonical_target_non_200": "points search engines to a main version that doesn't work",
         "canonical_target_non_indexable": "points search engines to a main version that's hidden from search",
         "directives_noindex": "is hidden from search engines",
+        // The summary counts a page with both noindex and nofollow under noindex.
         "directives_nofollow": "tells search engines not to follow its links",
         "hreflang_invalid_code": "has language settings that need correcting",
         "hreflang_missing_self_reference": "has language settings that need correcting",

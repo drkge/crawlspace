@@ -512,8 +512,13 @@ public enum ClickUpExporter {
                 result.closingHeldBack = true
                 continue
             }
+            // One half of a pair, now filed as one with the other: merged, not fixed.
+            let merged = ClickUpUnitBuilder.measuredPairs.first { pair in
+                wanted.contains(pair.name) && [pair.primary, pair.other].contains { ClickUpUnitBuilder.title($0) == child.name }
+            }
             try await client.updateTask(id: child.id, status: closed)
-            try await client.comment(taskID: child.id, text: "Fixed: not found in \(crawlName).")
+            try await client.comment(taskID: child.id, text: merged.map { "Merged into “\($0.name)”, the same problem measured two ways." }
+                                                             ?? "Fixed: not found in \(crawlName).")
             result.subtasksClosed += 1
         }
     }
