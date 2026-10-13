@@ -147,6 +147,12 @@ The list keeps names short: an image by its file name (one fix for the file, at 
 address it's served, Shopify's CDN included), another site's address without https:// or tracking
 and with the middle of a long path left out, and encoded characters as themselves (®, not %C2%AE).
 
+Some addresses aren't fixes. A copy of a page with only tracking added (`?_psid=` from Shopify's
+recommendations, `?srsltid=` from Google, `utm_` tags) answers with the page itself, so its issues
+are filed with the page, as long as the page was crawled too. Shopify's sign-in
+(/customer_authentication/) is Shopify's to run. And links that differ only by tracking or a share
+code (`?sh=` on Forbes) are one link to fix, with every address listed.
+
 **Change patterns.** Broken and redirecting addresses that changed for the same reason are one fix,
 not one per address: removed pages all sent to the home page, "®" or a "-1" taken out of handles, a
 blog moved from /blog to /blogs/blog, links to products by number instead of handle, deleted products
@@ -382,7 +388,7 @@ placeholder at the sizes that are missing — 64pt among them.
 - **Shopify stores get a profile of their own.** When a crawl starts, Crawlspace looks at the start
   page, and on a Shopify store (recognised by its headers or theme) it leaves out what Shopify
   generates by design: storefront filter combinations, sorting, site search, tag combinations,
-  theme previews, share buttons and customer accounts; and it strips variant and
+  theme previews, share buttons, customer accounts and sign-in; and it strips variant and
   tracking parameters from URLs, so a link to `?variant=123` still counts as a link to its product. On a typical store that
   is over half the crawl. It also turns on *leave pages blocked by robots.txt
   out of the reports*, since Shopify writes the robots.txt. The patterns are added to the crawl's
