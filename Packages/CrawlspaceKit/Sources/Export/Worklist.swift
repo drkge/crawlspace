@@ -135,11 +135,12 @@ public final class Worklist: Sendable {
                 guard let renamed = FixBuilder.shopifyFile(name) else { continue }
                 try Self.rename(key, to: "\(group)|\(renamed)", name: renamed, db: db)
             }
-            // Tracking copies of pages and Shopify's sign-in were once filed as fixes. They aren't
-            // any more, and a fix that's gone would read as verified, so they go.
+            // Tracking copies of pages, Shopify's sign-in and the links on collection copies were once
+            // filed as fixes. They aren't any more, and a fix that's gone would read as verified, so
+            // they go.
             for row in try Row.fetchAll(db, sql: """
                 SELECT key, name FROM items
-                WHERE parent_key IS NULL AND (name LIKE '%?%' OR name LIKE '%/customer_authentication/%')
+                WHERE parent_key IS NULL AND (name LIKE '%?%' OR name LIKE '%/customer_authentication/%' OR name LIKE 'Links on %')
                 """) {
                 let (key, name): (String, String) = (row[0], row[1])
                 guard FixBuilder.isLeftOut(name: name) else { continue }
@@ -262,8 +263,12 @@ public final class Worklist: Sendable {
 
         try queue.write { db in
             // Fixes found to be one since they were filed: each takes on the one it's part of.
+            // A fix this crawl still has is never part of another.
+            let foundKeys = Set(rows.map(\.key))
             for row in rows {
-                for alias in row.aliases { try Self.rename(alias, to: row.key, name: row.name, db: db) }
+                for alias in row.aliases where !foundKeys.contains(alias) {
+                    try Self.rename(alias, to: row.key, name: row.name, db: db)
+                }
             }
             var existing: [String: Item] = [:]
             for row in try Row.fetchAll(db, sql: "SELECT * FROM items") {
@@ -354,7 +359,7 @@ public final class Worklist: Sendable {
         var kind: String
         var pageCount: Int
         var checkURLs: [String]
-        /// Keys its addresses had as fixes of their own, whose status it takes over.
+        /// Keys of fixes it takes over, whose status it carries on.
         var aliases: [String] = []
     }
 
@@ -393,13 +398,13 @@ public final class Worklist: Sendable {
             }
             rows.append(Found(key: key, parentKey: nil, group: unit.group.rawValue, name: unit.name, severity: unit.severity,
                               kind: ClientSummaryBuilder.kindCode(of: unit), pageCount: unit.pages.count,
-                              checkURLs: speed ? [] : check, aliases: unit.aliases.map { "\(unit.group.rawValue)|\($0)" }))
+                              checkURLs: speed ? [] : check, aliases: unit.aliases))
             for issue in unit.issues {
                 let speed = issue.code.hasPrefix("lh_")
                 let pages: [String] = if case .template = unit.kind { urls(issue.pages.prefix(samplePages)) } else { urls(issue.pages) }
                 rows.append(Found(key: "\(key)|\(issue.name)", parentKey: key, group: unit.group.rawValue, name: issue.name,
                                   severity: issue.severity, kind: ClientSummaryBuilder.kindCode(for: issue.code),
-                                  pageCount: issue.pages.count, checkURLs: speed ? [] : pages))
+                                  pageCount: issue.pages.count, checkURLs: speed ? [] : pages, aliases: issue.aliases))
             }
         }
         return rows
@@ -413,8 +418,14 @@ public final class Worklist: Sendable {
         guard let path = try lastSeenPath(for: key) else { return "" }
         let units = try Self.cache.units(at: path)
         let parts = key.split(separator: "|", maxSplits: 2).map(String.init)
+        // A fix taken over by another since this crawl was read shows the one it's part of.
+        for unit in units {
+            if let issue = unit.issues.first(where: { $0.aliases.contains(key) }) {
+                return try FixBuilder.markdown(for: issue, in: unit, store: CrawlStore.open(at: URL(filePath: path)), rows: 50)
+            }
+        }
         guard parts.count >= 2, let unit = units.first(where: { $0.group.rawValue == parts[0] && $0.name == parts[1] })
-                ?? units.first(where: { $0.group.rawValue == parts[0] && $0.aliases.contains(parts[1]) }) else {
+                ?? units.first(where: { $0.aliases.contains(key) }) else {
             return "Not in \(URL(filePath: path).deletingPathExtension().lastPathComponent) any more."
         }
         let store = try CrawlStore.open(at: URL(filePath: path))

@@ -106,8 +106,9 @@ public struct Fix: Sendable, Hashable {
     /// True when it has issues only at severities left out: kept as it is, if there is
     /// one, is left as it is rather than closed.
     public var heldOpen = false
-    /// The names its addresses had as fixes of their own, before they were found to be one: the
-    /// worklist carries their status over rather than taking them as fixed.
+    /// The fixes it takes over, as "group|name" keys: its addresses filed one by one, or a page's
+    /// links filed apart from the page. The worklist carries their status over rather than taking
+    /// them as fixed.
     public var aliases: [String] = []
 
     /// What its count is of: issues on a page, otherwise pages.
@@ -135,6 +136,8 @@ public struct FixIssue: Sendable, Hashable {
     /// The other half of a pair measured two ways, filed with it as one: a title over 60 characters
     /// and over 561 pixels is one title to shorten.
     public var also: [String] = []
+    /// The fixes it takes over, as "group|name" keys, like a fix's.
+    public var aliases: [String] = []
 }
 
 /// Works out the fixes a crawl's issues come to, and writes each one's description.
@@ -197,6 +200,32 @@ public enum FixBuilder {
         "content_exact_duplicate": "content_hash", "content_near_duplicate": "",
     ]
 
+    /// What a group of pages has in common, as "they …" finishes it.
+    static func likeness(_ code: String, value: String?) -> String {
+        switch code {
+        case "title_duplicate": "share the title “\(value ?? "")”"
+        case "meta_description_duplicate": "share the meta description “\(value ?? "")”"
+        case "h1_duplicate": "share the H1 “\(value ?? "")”"
+        case "content_exact_duplicate": "have exactly the same content"
+        default: "have very similar content"
+        }
+    }
+
+    /// The title, description or H1 a group of pages shares, read from one of them; nil for content.
+    static func clusterValue(_ code: String, page: Int64?, store: CrawlStore) throws -> String? {
+        guard let page, let column = clusterColumns[code], !column.isEmpty, column != "content_hash" else { return nil }
+        return try store.pool.read { db in
+            try String.fetchOne(db, sql: "SELECT CAST(\(column) AS TEXT) FROM urls WHERE id = ?", arguments: [page])
+        }
+    }
+
+    /// Which of a group of pages' likenesses leads, and names the fix: the content before the title,
+    /// description and H1 that come of it.
+    static func clusterOrder(of fix: Fix) -> Int {
+        ["content_exact_duplicate", "content_near_duplicate", "title_duplicate", "meta_description_duplicate", "h1_duplicate"]
+            .firstIndex(of: fix.codes.first ?? "") ?? 9
+    }
+
     /// Issues the theme makes rather than a page's own content: on most pages of a template, they
     /// are the template's to fix, once.
     static let templateCodes: Set = [
@@ -252,14 +281,24 @@ public enum FixBuilder {
     ///
     /// A Shopify store's file is the same file at cdn.shopify.com/s/files/1/<shop>/… and at the
     /// store's own /cdn/shop/…, so both are taken as the store's.
-    static func imageFile(_ address: String, origin: String = "") -> String {
+    static func imageFile(_ address: String, origin: String = "", sizes: Bool = true) -> String {
         var file = address
         let parts = address.split(separator: "?", maxSplits: 1)
         if parts.count == 2, let path = URL(string: String(parts[0]))?.pathExtension.lowercased(), imageExtensions.contains(path) {
             file = String(parts[0])
         }
-        return shopifyFile(file).map { origin + $0 } ?? file
+        file = shopifyFile(file).map { origin + $0 } ?? file
+        // Shopify serves a file resized at logo_480x480.png, logo_large.png and the like.
+        if sizes, file.contains("/cdn/shop/") || file.contains("cdn.shopify.com/") {
+            file = file.replacing(shopifySize, with: "")
+        }
+        return file
     }
+
+    /// The size Shopify's older image addresses put before the extension: _480x480, _x200,
+    /// _1024x1024@2x, _large, _480x480_crop_center.
+    nonisolated(unsafe) static let shopifySize =
+        /_(?:\d+x\d*|x\d+|pico|icon|thumb|small|compact|medium|large|grande|original|master)(?:_crop_(?:top|center|bottom|left|right))?(?:@\dx)?(?=\.[A-Za-z0-9]+$)/
 
     /// The store's own path for a file on Shopify's CDN: /cdn/shop/files/logo.png for
     /// https://cdn.shopify.com/s/files/1/0750/7322/5010/files/logo.png; nil for any other address.
@@ -451,7 +490,7 @@ public enum FixBuilder {
                 units.append(Fix(group: .links, kind: .target(first.id), name: "\(first.prefix): \(shown(first.id))",
                                  severity: worst(Array(all)), codes: sorted(Array(all)), pages: try byInlinks(linkers),
                                  members: ordered.count > 1 ? ordered.map(\.id) : [],
-                                 aliases: ordered.filter { $0.id != first.id }.map { "\($0.prefix): \(shown($0.id))" }))
+                                 aliases: ordered.filter { $0.id != first.id }.map { "links|\($0.prefix): \(shown($0.id))" }))
             }
             for code in linkSourceCodes { claimed.insert(code) }
 
@@ -479,14 +518,12 @@ public enum FixBuilder {
                                                  name: "\(label): \(text)\(shown(key.target))", severity: worst([code]),
                                                  codes: [code], pages: try byInlinks(sources)))
                     } else {
-                        for source in sources { pageLinks[source, default: []].append(code) }
+                        for source in sources where !leftOut.contains(source) { pageLinks[source, default: []].append(code) }
                     }
                 }
             }
-            for (page, codes) in pageLinks {
-                units.append(Fix(group: .links, kind: .page(page), name: "Links on \(pageName(page))",
-                                         severity: worst(codes), codes: sorted(codes), pages: [page]))
-            }
+            // The rest are the page's to fix, with its other issues: see the page lists below.
+            try urls.load(Set(pageLinks.keys), db: db)
 
             // Images: one fix per image file, with every page showing it. A CDN serves one file at
             // many sizes and versions, and its alt text and weight are set once.
@@ -530,10 +567,13 @@ public enum FixBuilder {
                 }
                 let first = ordered[0]
                 let name = IssueEvidenceBuilder.shorten(file, site: origin)
+                // A resized copy was a fix of its own before it was known to be the file.
+                let earlier = Set(ordered.map { IssueEvidenceBuilder.shorten(imageFile(urls[$0].url, origin: origin, sizes: false), site: origin) })
+                    .filter { $0 != name }
                 units.append(Fix(group: .images, kind: .image(first), name: name,
                                          severity: worst(Array(codes)), codes: sorted(codes),
                                          pages: try byInlinks(pages), counts: counts.mapValues(\.count),
-                                         members: ordered.count > 1 ? ordered : []))
+                                         members: ordered.count > 1 ? ordered : [], aliases: earlier.map { "images|\($0)" }))
             }
 
             // Site settings: one fix per issue.
@@ -546,6 +586,7 @@ public enum FixBuilder {
             }
 
             // Duplicates: one fix per group of pages sharing something.
+            var clusters: [Fix] = []
             for (code, column) in clusterColumns where wanted(code, in: .duplicates) {
                 claimed.insert(code)
                 let ids = byCode[code] ?? []
@@ -594,14 +635,29 @@ public enum FixBuilder {
                     case "content_exact_duplicate": "Duplicate content: \(first)"
                     default: "Similar content: \(first)"
                     }
-                    units.append(Fix(group: .duplicates, kind: .cluster(code: code, value: value), name: name,
-                                             severity: worst([code]), codes: [code], pages: pages))
+                    clusters.append(Fix(group: .duplicates, kind: .cluster(code: code, value: value), name: name,
+                                        severity: worst([code]), codes: [code], pages: pages))
                 }
+            }
+            // Pages that share their content, title, description and H1 are one decision — which to
+            // keep — so they're one fix, with each way they're alike as an issue under it.
+            for same in Dictionary(grouping: clusters, by: { Set($0.pages) }).values {
+                guard same.count > 1 else { units += same; continue }
+                let ordered = same.sorted { clusterOrder(of: $0) < clusterOrder(of: $1) }
+                let lead = ordered[0]
+                let codes = ordered.flatMap(\.codes)
+                units.append(Fix(group: .duplicates, kind: lead.kind, name: lead.name, severity: worst(codes),
+                                 codes: sorted(codes), pages: lead.pages,
+                                 issues: ordered.map { cluster in
+                                     FixIssue(name: title(cluster.codes[0]), code: cluster.codes[0], severity: cluster.severity,
+                                              pages: cluster.pages,
+                                              aliases: cluster.name == lead.name ? [] : ["duplicates|\(cluster.name)"])
+                                 }))
             }
 
             if shopify {
-                units += try shopifyPages(db: db, byCode: byCode, claimed: claimed, copies: copies, groups: groups,
-                                          severities: severities, urls: &urls, site: site)
+                units += try shopifyPages(db: db, byCode: byCode, claimed: claimed, copies: copies, pageLinks: pageLinks,
+                                          groups: groups, severities: severities, urls: &urls, site: site)
             } else {
             // Speed: one fix per template a page was measured as, or per page without one.
             var speedPages: [Int64: [String]] = [:]
@@ -639,6 +695,14 @@ public enum FixBuilder {
                 guard group == .products || group.pageSeverity != nil, wanted(code, in: group) else { continue }
                 for id in ids { perPage[group, default: [:]][id, default: []].append(code) }
             }
+            // Links on a page that are wrong in themselves, and not the theme's, go with its issues.
+            for (page, codes) in pageLinks {
+                for code in codes {
+                    guard let definition = lookup(code), severities.contains(definition.severity) else { continue }
+                    let group = FixGroup.pages(definition.severity)
+                    if groups.contains(group) { perPage[group, default: [:]][page, default: []].append(code) }
+                }
+            }
             // A pair measured two ways can straddle two severities: a title over 561 pixels is a
             // warning, over 60 characters a notice. On the same page it's one title, so the milder
             // half goes in with the worse, into its list.
@@ -652,10 +716,17 @@ public enum FixBuilder {
                     perPage[to]?[page]?.append(pair.other)
                 }
             }
+            // A page's links were once a fix of their own, now taken over by its worst list's fix.
+            var linksFix: [Int64: FixGroup] = [:]
+            for (page, codes) in pageLinks {
+                let worstCode = codes.min { (lookup($0)?.severity ?? .notice) < (lookup($1)?.severity ?? .notice) }
+                if let severity = worstCode.flatMap(lookup)?.severity { linksFix[page] = FixGroup.pages(severity) }
+            }
             for (group, pages) in perPage {
                 for (page, codes) in pages {
                     units.append(Fix(group: group, kind: .page(page), name: pageName(page),
-                                             severity: worst(codes), codes: sorted(codes), pages: [page]))
+                                             severity: worst(codes), codes: sorted(codes), pages: [page],
+                                             aliases: linksFix[page] == group ? ["links|Links on \(pageName(page))"] : []))
                 }
             }
             }
@@ -675,8 +746,8 @@ public enum FixBuilder {
     /// template instead, and so does a speed problem Lighthouse measured on a template's page.
     /// Collection copies of products are left out: the product-card fix stands for them.
     private static func shopifyPages(db: Database, byCode: [String: [Int64]], claimed: Set<String>,
-                                     copies: Set<Int64>, groups: Set<FixGroup>, severities: Set<IssueSeverity>,
-                                     urls: inout URLLookup, site: String) throws -> [Fix] {
+                                     copies: Set<Int64>, pageLinks: [Int64: [String]], groups: Set<FixGroup>,
+                                     severities: Set<IssueSeverity>, urls: inout URLLookup, site: String) throws -> [Fix] {
         func lookup(_ code: String) -> IssueDefinition? { IssueCatalogue.definition(for: code) }
         func severity(_ code: String) -> IssueSeverity { lookup(code)?.severity ?? .notice }
         func title(_ code: String) -> String { FixBuilder.title(code) }
@@ -689,6 +760,8 @@ public enum FixBuilder {
             guard let definition = lookup(code), pageGroups.contains(FixGroup.group(for: definition)) else { continue }
             for id in ids where !copies.contains(id) { perPage[id, default: []].insert(code) }
         }
+        // Links on the page that are wrong in themselves, and not the theme's.
+        for (page, codes) in pageLinks where !copies.contains(page) { perPage[page, default: []].formUnion(codes) }
         try urls.load(Set(perPage.keys), db: db)
 
         // How many pages each template has, to judge what's on most of them.
@@ -794,7 +867,11 @@ public enum FixBuilder {
             units.append(Fix(group: group, kind: .page(entry.id), name: FixBuilder.pageName(for: entry.address, site: site),
                                      severity: severity((chosen.isEmpty ? all : chosen)[0]), codes: chosen, pages: pages,
                                      issues: Self.issues(for: chosen, pages: { codesOn[$0] ?? [] }, severity: severity),
-                                     heldOpen: chosen.isEmpty))
+                                     heldOpen: chosen.isEmpty,
+                                     // Its links were once a fix of their own.
+                                     aliases: entry.members.filter { pageLinks[$0] != nil }.map {
+                                         "links|Links on \(FixBuilder.pageName(for: urls[$0].url, site: site))"
+                                     }))
         }
         return units
     }
@@ -971,16 +1048,20 @@ public enum FixBuilder {
             parts.append("\(definition.description)\n\n**How to fix:** \(definition.howToFix)")
             parts.append(try FixBuilder.urlTable(code: code, ids: unit.pages, site: site, store: store, rows: rows))
 
+        case .cluster(let code, _) where !unit.issues.isEmpty:
+            guard let definition = IssueCatalogue.definition(for: code) else { break }
+            parts.append("**These \(unit.pages.count.formatted()) pages are alike \(unit.issues.count) ways**, so they're one "
+                + "decision — which page to keep — rather than a fix for each:")
+            parts.append(try unit.issues.map { issue in
+                "- \(issue.name): they \(likeness(issue.code, value: try clusterValue(issue.code, page: issue.pages.first, store: store)))"
+            }.joined(separator: "\n"))
+            let advice = unit.pages.first.flatMap { try? fix(code, page: $0) }
+            parts.append("**How to fix:** \(advice ?? definition.howToFix)")
+            parts.append(plainTable("Pages"))
+
         case .cluster(let code, let value):
             guard let definition = IssueCatalogue.definition(for: code) else { break }
-            let what = switch code {
-            case "title_duplicate": "share the title “\(value ?? "")”"
-            case "meta_description_duplicate": "share the meta description “\(value ?? "")”"
-            case "h1_duplicate": "share the H1 “\(value ?? "")”"
-            case "content_exact_duplicate": "have exactly the same content"
-            default: "have very similar content"
-            }
-            parts.append("**\(unit.pages.count.formatted()) pages \(what).**")
+            parts.append("**\(unit.pages.count.formatted()) pages \(likeness(code, value: value)).**")
             let advice = unit.pages.first.flatMap { try? fix(code, page: $0) }
             parts.append("\(definition.description)\n\n**How to fix:** \(advice ?? definition.howToFix)")
             parts.append(plainTable("Pages"))
@@ -1073,6 +1154,12 @@ public enum FixBuilder {
         let config = try store.loadConfig()
         let site = URL(string: config.startURL)?.host() ?? config.startURL
         guard let first = issue.pages.first else { return "" }
+        // One way a group of pages is alike reads as that likeness on its own.
+        if case .cluster = unit.kind {
+            let alone = Fix(group: unit.group, kind: .cluster(code: issue.code, value: try clusterValue(issue.code, page: first, store: store)),
+                            name: issue.name, severity: issue.severity, codes: [issue.code], pages: issue.pages)
+            return try markdown(for: alone, store: store, rows: rows)
+        }
         if case .template(let template) = unit.kind {
             let shown = try store.rows(ids: Array(issue.pages.prefix(rows)))
             let evidence = try IssueEvidenceBuilder.evidence(for: issue.code, urlID: first, store: store)
@@ -1245,11 +1332,13 @@ extension FixBuilder {
     }
 
     /// Whether a name the worklist has is for something no longer filed as a fix: a tracking copy of
-    /// a page, or Shopify's sign-in — "/products/x?_psid=1", "Links on /products/x?_psid=1",
-    /// "Redirect: /customer_authentication/redirect".
+    /// a page, Shopify's sign-in, or the links on a product's collection copy, which are the
+    /// product's — "/products/x?_psid=1", "Links on /products/x?_psid=1", "Redirect:
+    /// /customer_authentication/redirect", "Links on /collections/c/products/x".
     static func isLeftOut(name: String) -> Bool {
         let address = name.split(separator: " ").last.map(String.init) ?? name
         guard address.hasPrefix("/") else { return false }
+        if name.hasPrefix("Links on "), EcommercePaths.product(path: address)?.collectionScoped == true { return true }
         return isTrackingCopy(address) || isShopifySignIn(address)
     }
 
