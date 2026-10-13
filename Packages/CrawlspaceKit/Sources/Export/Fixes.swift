@@ -8,18 +8,18 @@ import Storage
 /// a list of their own, because one fix there usually clears many pages. What's left is filed page
 /// by page: on a Shopify store into a list per kind of page (products, collections, pages, blog
 /// posts and the rest), elsewhere into a list per severity, with speed and products beside them.
-public enum ClickUpTopic: String, CaseIterable, Codable, Sendable {
+public enum FixGroup: String, CaseIterable, Codable, Sendable {
     case links, images, siteSettings, duplicates, speed, products, collections, storePages, blog, otherPages
     case errors, warnings, notices
 
     /// The lists a crawl files into: by kind of page on a Shopify store, by severity elsewhere.
-    public static func topics(shopify: Bool) -> [ClickUpTopic] {
+    public static func groups(shopify: Bool) -> [FixGroup] {
         shopify ? [.links, .images, .siteSettings, .duplicates, .products, .collections, .storePages, .blog, .otherPages]
                 : [.links, .images, .siteSettings, .duplicates, .speed, .products, .errors, .warnings, .notices]
     }
 
     /// The list a Shopify page goes into, by the template it's built from.
-    public static func list(for template: ShopifyProfile.Template?) -> ClickUpTopic {
+    public static func list(for template: ShopifyProfile.Template?) -> FixGroup {
         switch template {
         case .product: .products
         case .collection, .allProducts: .collections
@@ -29,46 +29,8 @@ public enum ClickUpTopic: String, CaseIterable, Codable, Sendable {
         }
     }
 
-    /// A line for the export panel saying what the list holds.
-    public func hint(shopify: Bool) -> String {
-        switch self {
-        case .links: "A task per broken or redirecting URL, with every page linking to it, and per link in the theme."
-        case .images: "A task per image file, whatever sizes it's shown at, with every page showing it."
-        case .siteSettings: "A task per setting, such as a security header, rather than per page."
-        case .duplicates: "A task per group of pages sharing a title, description, H1 or content."
-        case .speed: "A task per template Lighthouse measured."
-        case .products: shopify ? "A task per product page, its issues as subtasks; theme issues on most products in one Product template task."
-            : "A task per product page, with what its data is missing."
-        case .collections: "A task per collection page, its issues as subtasks; theme issues in one Collection template task."
-        case .storePages: "A task per page (/pages/…), its issues as subtasks."
-        case .blog: "A task per blog and blog post, its issues as subtasks; theme issues in one Article template task."
-        case .otherPages: "The home page and anything else, a task each with its issues as subtasks."
-        case .errors: "A task per page, with the rest of its errors."
-        case .warnings: "A task per page, with the rest of its warnings."
-        case .notices: "A task per page, with the rest of its notices."
-        }
-    }
-
-    public var label: String {
-        switch self {
-        case .links: "Links"
-        case .images: "Images"
-        case .siteSettings: "Site settings"
-        case .duplicates: "Duplicates"
-        case .speed: "Speed"
-        case .products: "Products"
-        case .collections: "Collections"
-        case .storePages: "Pages"
-        case .blog: "Blog posts"
-        case .otherPages: "Other pages"
-        case .errors: "Errors"
-        case .warnings: "Warnings"
-        case .notices: "Notices"
-        }
-    }
-
     /// The list of pages for a severity.
-    public static func pages(_ severity: IssueSeverity) -> ClickUpTopic {
+    public static func pages(_ severity: IssueSeverity) -> FixGroup {
         switch severity {
         case .error: .errors
         case .warning: .warnings
@@ -86,35 +48,23 @@ public enum ClickUpTopic: String, CaseIterable, Codable, Sendable {
         }
     }
 
-    /// The tag that says which list a task belongs to, so a list shared by several can tell them
-    /// apart. Page tasks share one, and their severity tag says which.
-    var tag: String {
-        switch self {
-        case .siteSettings: "site-settings"
-        case .storePages: "shopify-pages"
-        case .otherPages: "other-pages"
-        case .errors, .warnings, .notices: "pages"
-        default: rawValue
-        }
-    }
-
-    public static func topic(for definition: IssueDefinition) -> ClickUpTopic {
+    public static func group(for definition: IssueDefinition) -> FixGroup {
         let code = definition.code
-        if ClickUpUnitBuilder.targetCodes[code] != nil || ClickUpUnitBuilder.linkSourceCodes.contains(code)
-            || ClickUpUnitBuilder.linkAttributeCodes.contains(code) || code == ClickUpUnitBuilder.productCardCode { return .links }
+        if FixBuilder.targetCodes[code] != nil || FixBuilder.linkSourceCodes.contains(code)
+            || FixBuilder.linkAttributeCodes.contains(code) || code == FixBuilder.productCardCode { return .links }
         if definition.category == .images { return .images }
         if definition.category == .security || definition.category == .sitemaps
-            || ClickUpUnitBuilder.settingCodes.contains(code) { return .siteSettings }
-        if ClickUpUnitBuilder.clusterColumns[code] != nil { return .duplicates }
+            || FixBuilder.settingCodes.contains(code) { return .siteSettings }
+        if FixBuilder.clusterColumns[code] != nil { return .duplicates }
         if definition.category == .speed { return .speed }
         if definition.category == .ecommerce { return .products }
         return pages(definition.severity)
     }
 }
 
-/// One thing to fix, which becomes one task: a broken URL and every link to it, an image and every
+/// One thing to fix: a broken URL and every link to it, an image and every
 /// page showing it, a server setting, a group of pages sharing a title, or a page and its issues.
-public struct ClickUpUnit: Sendable, Hashable {
+public struct Fix: Sendable, Hashable {
     public enum Kind: Sendable, Hashable {
         /// A URL that is broken, redirects or couldn't be checked, and the links pointing at it.
         case target(Int64)
@@ -137,11 +87,11 @@ public struct ClickUpUnit: Sendable, Hashable {
         case pattern(ChangePatterns.Kind)
     }
 
-    public var topic: ClickUpTopic
+    public var group: FixGroup
     public var kind: Kind
-    /// The task's name, which is also how the next export finds it.
+    /// Its name, which is also how the next crawl finds it again.
     public var name: String
-    /// The worst of its issues: the task's priority and severity tag.
+    /// The worst of its issues.
     public var severity: IssueSeverity
     /// Issue codes, worst first.
     public var codes: [String]
@@ -149,15 +99,15 @@ public struct ClickUpUnit: Sendable, Hashable {
     public var pages: [Int64]
     /// Pages per issue code, where that differs from `pages`.
     public var counts: [String: Int] = [:]
-    /// Each issue as a subtask: a Shopify page's issues, or a template's.
-    public var subtasks: [ClickUpSubtask] = []
+    /// Each issue as a issue: a Shopify page's issues, or a template's.
+    public var issues: [FixIssue] = []
     /// Everything it stands for, where that's more than one URL: every size of an image file.
     public var members: [Int64] = []
-    /// True when it has issues only at severities left out of this export: its task, if there is
+    /// True when it has issues only at severities left out: kept as it is, if there is
     /// one, is left as it is rather than closed.
     public var heldOpen = false
 
-    /// What the task's count is of: issues on a page, otherwise pages.
+    /// What its count is of: issues on a page, otherwise pages.
     public var countsIssues: Bool {
         switch kind {
         case .page, .template: true
@@ -172,8 +122,8 @@ public struct ClickUpUnit: Sendable, Hashable {
     }
 }
 
-/// One issue under a task: on a page, or on most pages built from a template.
-public struct ClickUpSubtask: Sendable, Hashable {
+/// One issue under a fix: on a page, or on most pages built from a template.
+public struct FixIssue: Sendable, Hashable {
     public var name: String
     public var code: String
     public var severity: IssueSeverity
@@ -184,10 +134,10 @@ public struct ClickUpSubtask: Sendable, Hashable {
     public var also: [String] = []
 }
 
-/// Works out the units a crawl's issues come to, and writes each one's task.
-public enum ClickUpUnitBuilder {
+/// Works out the fixes a crawl's issues come to, and writes each one's description.
+public enum FixBuilder {
     /// Issues on a URL that links lead to, and the issue on the pages that link to it. Both are one
-    /// fix, so both go in the URL's task.
+    /// fix, so both go in the URL's fix.
     static let targetCodes: [String: String?] = [
         "response_internal_4xx": "links_to_broken_internal",
         "response_internal_5xx": "links_to_broken_internal",
@@ -259,7 +209,7 @@ public enum ClickUpUnitBuilder {
         "links_no_internal_outlinks",
     ]
     /// Issues that are one problem measured two ways, or set by one tag: on the same page, one
-    /// subtask and one fix. The first of each is the worse, and names the problem.
+    /// issue and one fix. The first of each is the worse, and names the problem.
     static let measuredPairs: [(primary: String, other: String, name: String)] = [
         ("title_over_561_pixels", "title_over_60_characters", "Page Titles: Too Long"),
         ("meta_description_over_985_pixels", "meta_description_over_155_characters", "Meta Description: Too Long"),
@@ -271,20 +221,20 @@ public enum ClickUpUnitBuilder {
         measuredPairs.first { $0.primary == code || $0.other == code }
     }
 
-    /// Subtasks for issues, a pair measured two ways as one where both are there.
-    static func subtasks(for codes: [String], pages: (String) -> [Int64], severity: (String) -> IssueSeverity) -> [ClickUpSubtask] {
-        var result: [ClickUpSubtask] = []
+    /// Issues for issues, a pair measured two ways as one where both are there.
+    static func issues(for codes: [String], pages: (String) -> [Int64], severity: (String) -> IssueSeverity) -> [FixIssue] {
+        var result: [FixIssue] = []
         var done: Set<String> = []
         for code in codes where !done.contains(code) {
             if let pair = pair(of: code), codes.contains(pair.primary), codes.contains(pair.other) {
                 done.formUnion([pair.primary, pair.other])
                 let first = pages(pair.primary)
                 let together = first + pages(pair.other).filter { !first.contains($0) }
-                result.append(ClickUpSubtask(name: pair.name, code: pair.primary, severity: min(severity(pair.primary), severity(pair.other)),
+                result.append(FixIssue(name: pair.name, code: pair.primary, severity: min(severity(pair.primary), severity(pair.other)),
                                              pages: together, also: [pair.other]))
             } else {
                 done.insert(code)
-                result.append(ClickUpSubtask(name: title(code), code: code, severity: severity(code), pages: pages(code)))
+                result.append(FixIssue(name: title(code), code: code, severity: severity(code), pages: pages(code)))
             }
         }
         return result
@@ -311,10 +261,10 @@ public enum ClickUpUnitBuilder {
     // MARK: - Units
 
     public static func units(store: CrawlStore, severities: Set<IssueSeverity>,
-                             topics chosen: Set<ClickUpTopic> = Set(ClickUpTopic.allCases)) throws -> [ClickUpUnit] {
+                             groups chosen: Set<FixGroup> = Set(FixGroup.allCases)) throws -> [Fix] {
         let config = try store.loadConfig()
         let shopify = ShopifyProfile.isStore(config)
-        let topics = chosen.intersection(ClickUpTopic.topics(shopify: shopify))
+        let groups = chosen.intersection(FixGroup.groups(shopify: shopify))
         let site = URL(string: config.startURL)?.host() ?? config.startURL
         let origin = URL(string: config.startURL).flatMap { url in url.scheme.map { "\($0)://\(url.host() ?? "")" } } ?? ""
 
@@ -327,9 +277,9 @@ public enum ClickUpUnitBuilder {
             try urls.load(Set(byCode.values.joined()), db: db)
 
             func lookup(_ code: String) -> IssueDefinition? { IssueCatalogue.definition(for: code) }
-            func wanted(_ code: String, in topic: ClickUpTopic) -> Bool {
-                guard let definition = lookup(code), topics.contains(topic),
-                      ClickUpTopic.topic(for: definition) == topic else { return false }
+            func wanted(_ code: String, in group: FixGroup) -> Bool {
+                guard let definition = lookup(code), groups.contains(group),
+                      FixGroup.group(for: definition) == group else { return false }
                 if severities.contains(definition.severity) { return true }
                 // A broken URL counts at the severity of the links to it, too.
                 if let paired = targetCodes[code] ?? nil, let pairedDefinition = lookup(paired) {
@@ -355,19 +305,19 @@ public enum ClickUpUnitBuilder {
                 }
             }
             func shown(_ id: Int64) -> String { IssueEvidenceBuilder.shorten(urls[id].url, site: origin) }
-            func pageName(_ id: Int64) -> String { ClickUpExporter.pageName(for: urls[id].url, site: site) }
+            func pageName(_ id: Int64) -> String { FixBuilder.pageName(for: urls[id].url, site: site) }
 
-            var units: [ClickUpUnit] = []
+            var units: [Fix] = []
             var claimed: Set<String> = []
 
-            // Links: one task per URL that links lead somewhere wrong.
+            // Links: one fix per URL that links lead somewhere wrong.
             var targets: [Int64: [String]] = [:]
             for (code, ids) in byCode where targetCodes[code] != nil && wanted(code, in: .links) {
                 claimed.insert(code)
                 for id in ids { targets[id, default: []].append(code) }
             }
             // A collection's product addresses that redirect to the product's own are the product
-            // card's doing, as are pages flagged for linking to them: one task for the lot.
+            // card's doing, as are pages flagged for linking to them: one fix for the lot.
             var cardTargets: [Int64] = []
             var cardCodes: Set<String> = []
             for (id, codes) in targets where codes.allSatisfy(redirectCodes.contains) && isCollectionProduct(urls[id].url, site: site) {
@@ -403,11 +353,11 @@ public enum ClickUpUnitBuilder {
                 var codes = cardCodes
                 if !cardTargets.isEmpty, byCode["links_to_redirect_internal"] != nil { codes.insert("links_to_redirect_internal") }
                 if !flagged.isEmpty { codes.insert(productCardCode) }
-                units.append(ClickUpUnit(topic: .links, kind: .productCards, name: "Product cards: links through collection addresses",
+                units.append(Fix(group: .links, kind: .productCards, name: "Product cards: links through collection addresses",
                                          severity: worst(Array(codes)), codes: sorted(codes), pages: try byInlinks(linkers),
                                          counts: ["addresses": cardTargets.count, "copies": servedCopies.count]))
             }
-            // Addresses on the site that broke or moved for the same reason: one task for the reason.
+            // Addresses on the site that broke or moved for the same reason: one fix for the reason.
             var addresses: [ChangePatterns.Address] = []
             for chunk in Array(targets.keys).chunked(900) {
                 let rows = try Row.fetchAll(db, sql: """
@@ -439,7 +389,7 @@ public enum ClickUpUnitBuilder {
                         """, arguments: StatementArguments(chunk)))
                 }
                 try urls.load(Set(pattern.members), db: db)
-                units.append(ClickUpUnit(topic: .links, kind: .pattern(pattern.kind), name: ChangePatterns.name(of: pattern.kind),
+                units.append(Fix(group: .links, kind: .pattern(pattern.kind), name: ChangePatterns.name(of: pattern.kind),
                                          severity: worst(Array(codes)), codes: sorted(codes), pages: try byInlinks(linkers),
                                          counts: ["addresses": pattern.members.count],
                                          members: pattern.members.sorted { urls[$0].url < urls[$1].url }))
@@ -450,12 +400,12 @@ public enum ClickUpUnitBuilder {
                 for code in codes { if let paired = targetCodes[code] ?? nil, byCode[paired] != nil { all.append(paired) } }
                 let prefix = codes.contains(where: brokenCodes.contains) ? "Broken link"
                     : codes.contains("response_external_unverified") ? "Unverified link" : "Redirect"
-                units.append(ClickUpUnit(topic: .links, kind: .target(id), name: "\(prefix): \(shown(id))",
+                units.append(Fix(group: .links, kind: .target(id), name: "\(prefix): \(shown(id))",
                                          severity: worst(all), codes: sorted(all), pages: try byInlinks(linkers)))
             }
             for code in linkSourceCodes { claimed.insert(code) }
 
-            // Links that are wrong in themselves: one task per link in the theme, and one per page
+            // Links that are wrong in themselves: one fix per link in the theme, and one per page
             // for the rest.
             var pageLinks: [Int64: [String]] = [:]
             for (code, condition) in linkAttributeConditions where wanted(code, in: .links) {
@@ -475,7 +425,7 @@ public enum ClickUpUnitBuilder {
                         try urls.load([key.target], db: db)
                         let text = key.text.isEmpty ? "" : "“\(truncated(key.text, 60))” → "
                         let label = code == "links_internal_nofollow" ? "Nofollow link" : "Link text"
-                        units.append(ClickUpUnit(topic: .links, kind: .link(code: code, target: key.target, text: key.text),
+                        units.append(Fix(group: .links, kind: .link(code: code, target: key.target, text: key.text),
                                                  name: "\(label): \(text)\(shown(key.target))", severity: worst([code]),
                                                  codes: [code], pages: try byInlinks(sources)))
                     } else {
@@ -484,11 +434,11 @@ public enum ClickUpUnitBuilder {
                 }
             }
             for (page, codes) in pageLinks {
-                units.append(ClickUpUnit(topic: .links, kind: .page(page), name: "Links on \(pageName(page))",
+                units.append(Fix(group: .links, kind: .page(page), name: "Links on \(pageName(page))",
                                          severity: worst(codes), codes: sorted(codes), pages: [page]))
             }
 
-            // Images: one task per image file, with every page showing it. A CDN serves one file at
+            // Images: one fix per image file, with every page showing it. A CDN serves one file at
             // many sizes and versions, and its alt text and weight are set once.
             var images: [Int64: (codes: Set<String>, pages: Set<Int64>, counts: [String: Set<Int64>])] = [:]
             for (code, condition) in imageConditions where wanted(code, in: .images) {
@@ -530,22 +480,22 @@ public enum ClickUpUnitBuilder {
                 }
                 let first = ordered[0]
                 let name = IssueEvidenceBuilder.shorten(file, site: origin)
-                units.append(ClickUpUnit(topic: .images, kind: .image(first), name: name,
+                units.append(Fix(group: .images, kind: .image(first), name: name,
                                          severity: worst(Array(codes)), codes: sorted(codes),
                                          pages: try byInlinks(pages), counts: counts.mapValues(\.count),
                                          members: ordered.count > 1 ? ordered : []))
             }
 
-            // Site settings: one task per issue.
+            // Site settings: one fix per issue.
             for (code, ids) in byCode where wanted(code, in: .siteSettings) {
                 claimed.insert(code)
                 guard let definition = lookup(code) else { continue }
-                units.append(ClickUpUnit(topic: .siteSettings, kind: .setting(code),
+                units.append(Fix(group: .siteSettings, kind: .setting(code),
                                          name: "\(definition.category.rawValue): \(definition.title)",
                                          severity: definition.severity, codes: [code], pages: try byInlinks(ids)))
             }
 
-            // Duplicates: one task per group of pages sharing something.
+            // Duplicates: one fix per group of pages sharing something.
             for (code, column) in clusterColumns where wanted(code, in: .duplicates) {
                 claimed.insert(code)
                 let ids = byCode[code] ?? []
@@ -594,16 +544,16 @@ public enum ClickUpUnitBuilder {
                     case "content_exact_duplicate": "Duplicate content: \(first)"
                     default: "Similar content: \(first)"
                     }
-                    units.append(ClickUpUnit(topic: .duplicates, kind: .cluster(code: code, value: value), name: name,
+                    units.append(Fix(group: .duplicates, kind: .cluster(code: code, value: value), name: name,
                                              severity: worst([code]), codes: [code], pages: pages))
                 }
             }
 
             if shopify {
-                units += try shopifyPages(db: db, byCode: byCode, claimed: claimed, copies: copies, topics: topics,
+                units += try shopifyPages(db: db, byCode: byCode, claimed: claimed, copies: copies, groups: groups,
                                           severities: severities, urls: &urls, site: site)
             } else {
-            // Speed: one task per template a page was measured as, or per page without one.
+            // Speed: one fix per template a page was measured as, or per page without one.
             var speedPages: [Int64: [String]] = [:]
             for (code, ids) in byCode where wanted(code, in: .speed) {
                 claimed.insert(code)
@@ -620,31 +570,31 @@ public enum ClickUpUnitBuilder {
                     if let template = templates[page] {
                         byTemplate[template, default: []].append(page)
                     } else {
-                        units.append(ClickUpUnit(topic: .speed, kind: .page(page), name: pageName(page),
+                        units.append(Fix(group: .speed, kind: .page(page), name: pageName(page),
                                                  severity: worst(codes), codes: sorted(codes), pages: [page]))
                     }
                 }
                 for (template, pages) in byTemplate {
                     let codes = pages.flatMap { speedPages[$0] ?? [] }
-                    units.append(ClickUpUnit(topic: .speed, kind: .template(template), name: "\(template) template",
+                    units.append(Fix(group: .speed, kind: .template(template), name: "\(template) template",
                                              severity: worst(codes), codes: sorted(codes), pages: try byInlinks(pages)))
                 }
             }
 
-            // Products, and everything else: one task per page, with its issues.
-            var perPage: [ClickUpTopic: [Int64: [String]]] = [:]
+            // Products, and everything else: one fix per page, with its issues.
+            var perPage: [FixGroup: [Int64: [String]]] = [:]
             for (code, ids) in byCode where !claimed.contains(code) {
                 guard let definition = lookup(code) else { continue }
-                let topic = ClickUpTopic.topic(for: definition)
-                guard topic == .products || topic.pageSeverity != nil, wanted(code, in: topic) else { continue }
-                for id in ids { perPage[topic, default: [:]][id, default: []].append(code) }
+                let group = FixGroup.group(for: definition)
+                guard group == .products || group.pageSeverity != nil, wanted(code, in: group) else { continue }
+                for id in ids { perPage[group, default: [:]][id, default: []].append(code) }
             }
             // A pair measured two ways can straddle two severities: a title over 561 pixels is a
             // warning, over 60 characters a notice. On the same page it's one title, so the milder
             // half goes in with the worse, into its list.
             for pair in measuredPairs {
                 guard let primary = lookup(pair.primary), let other = lookup(pair.other) else { continue }
-                let (to, from) = (ClickUpTopic.topic(for: primary), ClickUpTopic.topic(for: other))
+                let (to, from) = (FixGroup.group(for: primary), FixGroup.group(for: other))
                 guard to != from, let pages = perPage[from] else { continue }
                 for (page, codes) in pages where codes.contains(pair.other) && perPage[to]?[page]?.contains(pair.primary) == true {
                     perPage[from]?[page]?.removeAll { $0 == pair.other }
@@ -652,17 +602,17 @@ public enum ClickUpUnitBuilder {
                     perPage[to]?[page]?.append(pair.other)
                 }
             }
-            for (topic, pages) in perPage {
+            for (group, pages) in perPage {
                 for (page, codes) in pages {
-                    units.append(ClickUpUnit(topic: topic, kind: .page(page), name: pageName(page),
+                    units.append(Fix(group: group, kind: .page(page), name: pageName(page),
                                              severity: worst(codes), codes: sorted(codes), pages: [page]))
                 }
             }
             }
 
-            let order = Dictionary(uniqueKeysWithValues: ClickUpTopic.allCases.enumerated().map { ($1, $0) })
+            let order = Dictionary(uniqueKeysWithValues: FixGroup.allCases.enumerated().map { ($1, $0) })
             return units.sorted { a, b in
-                if a.topic != b.topic { return order[a.topic]! < order[b.topic]! }
+                if a.group != b.group { return order[a.group]! < order[b.group]! }
                 if a.severity != b.severity { return a.severity < b.severity }
                 if a.count != b.count { return a.count > b.count }
                 return a.name < b.name
@@ -670,23 +620,23 @@ public enum ClickUpUnitBuilder {
         }
     }
 
-    /// A Shopify store's pages, each in the list for its kind of page with its issues as subtasks.
-    /// An issue the theme makes, on most pages of a template, becomes a subtask of one task for the
+    /// A Shopify store's pages, each in the list for its kind of page with its issues as issues.
+    /// An issue the theme makes, on most pages of a template, becomes an issue of one fix for the
     /// template instead, and so does a speed problem Lighthouse measured on a template's page.
-    /// Collection copies of products are left out: the product-card task stands for them.
+    /// Collection copies of products are left out: the product-card fix stands for them.
     private static func shopifyPages(db: Database, byCode: [String: [Int64]], claimed: Set<String>,
-                                     copies: Set<Int64>, topics: Set<ClickUpTopic>, severities: Set<IssueSeverity>,
-                                     urls: inout URLLookup, site: String) throws -> [ClickUpUnit] {
+                                     copies: Set<Int64>, groups: Set<FixGroup>, severities: Set<IssueSeverity>,
+                                     urls: inout URLLookup, site: String) throws -> [Fix] {
         func lookup(_ code: String) -> IssueDefinition? { IssueCatalogue.definition(for: code) }
         func severity(_ code: String) -> IssueSeverity { lookup(code)?.severity ?? .notice }
-        func title(_ code: String) -> String { ClickUpUnitBuilder.title(code) }
-        let pageTopics: Set<ClickUpTopic> = [.errors, .warnings, .notices, .products, .speed]
+        func title(_ code: String) -> String { FixBuilder.title(code) }
+        let pageGroups: Set<FixGroup> = [.errors, .warnings, .notices, .products, .speed]
 
         // Every issue a page has of its own, at any severity, so a page with only issues left out
-        // of this export isn't mistaken for one that's clean.
+        // isn't mistaken for one that's clean.
         var perPage: [Int64: Set<String>] = [:]
         for (code, ids) in byCode where !claimed.contains(code) {
-            guard let definition = lookup(code), pageTopics.contains(ClickUpTopic.topic(for: definition)) else { continue }
+            guard let definition = lookup(code), pageGroups.contains(FixGroup.group(for: definition)) else { continue }
             for id in ids where !copies.contains(id) { perPage[id, default: []].insert(code) }
         }
         try urls.load(Set(perPage.keys), db: db)
@@ -739,27 +689,28 @@ public enum ClickUpUnitBuilder {
             Array(Set(codes)).sorted { severity($0) != severity($1) ? severity($0) < severity($1) : $0 < $1 }
         }
 
-        var units: [ClickUpUnit] = []
-        for (template, issues) in moved {
-            let topic = ClickUpTopic.list(for: ShopifyProfile.Template(rawValue: template))
-            guard topics.contains(topic) else { continue }
-            let all = ordered(issues.keys)
+        var units: [Fix] = []
+        for (template, pagesByCode) in moved {
+            let group = FixGroup.list(for: ShopifyProfile.Template(rawValue: template))
+            guard groups.contains(group) else { continue }
+            let all = ordered(pagesByCode.keys)
             let chosen = all.filter { severities.contains(severity($0)) }
             var pagesOf: [String: [Int64]] = [:]
-            for code in chosen { pagesOf[code] = try byInlinks(issues[code] ?? []) }
-            let subtasks = Self.subtasks(for: chosen, pages: { pagesOf[$0] ?? [] }, severity: severity)
-            units.append(ClickUpUnit(topic: topic, kind: .template(template), name: "\(template) template",
-                                     severity: severity((chosen.isEmpty ? all : chosen)[0]), codes: chosen,
-                                     pages: try byInlinks(issues.values.joined()), subtasks: subtasks, heldOpen: chosen.isEmpty))
+            for code in chosen { pagesOf[code] = try byInlinks(pagesByCode[code] ?? []) }
+            units.append(Fix(group: group, kind: .template(template), name: "\(template) template",
+                             severity: severity((chosen.isEmpty ? all : chosen)[0]), codes: chosen,
+                             pages: try byInlinks(pagesByCode.values.joined()),
+                             issues: Self.issues(for: chosen, pages: { pagesOf[$0] ?? [] }, severity: severity),
+                             heldOpen: chosen.isEmpty))
         }
         func own(_ page: Int64) -> Set<String> {
             let template = templateOf[page] ?? measured[page]
             return (perPage[page] ?? []).filter { code in !(template.flatMap { moved[$0]?[code] }?.contains(page) ?? false) }
         }
 
-        // The pages of a paginated collection or blog (?page=2, ?page=9…) are one task with the
+        // The pages of a paginated collection or blog (?page=2, ?page=9…) are one fix with the
         // first: page 9 of a collection is the same template and settings as page 1, and its own
-        // task would repeat page 1's issues once for every page.
+        // fix would repeat page 1's issues once for every page.
         var paginated: [String: [Int64]] = [:]
         for page in perPage.keys {
             if let first = paginationBase(of: urls[page].url) { paginated[first, default: []].append(page) }
@@ -785,14 +736,14 @@ public enum ClickUpUnitBuilder {
                 for code in own(member) { codesOn[code, default: []].append(member) }
             }
             guard !codesOn.isEmpty else { continue }
-            let topic = ClickUpTopic.list(for: ShopifyProfile.template(of: entry.address, ignoringQuery: true))
-            guard topics.contains(topic) else { continue }
+            let group = FixGroup.list(for: ShopifyProfile.template(of: entry.address, ignoringQuery: true))
+            guard groups.contains(group) else { continue }
             let all = ordered(codesOn.keys)
             let chosen = all.filter { severities.contains(severity($0)) }
             let pages = entry.members.filter { member in codesOn.values.contains { $0.contains(member) } }
-            units.append(ClickUpUnit(topic: topic, kind: .page(entry.id), name: ClickUpExporter.pageName(for: entry.address, site: site),
+            units.append(Fix(group: group, kind: .page(entry.id), name: FixBuilder.pageName(for: entry.address, site: site),
                                      severity: severity((chosen.isEmpty ? all : chosen)[0]), codes: chosen, pages: pages,
-                                     subtasks: Self.subtasks(for: chosen, pages: { codesOn[$0] ?? [] }, severity: severity),
+                                     issues: Self.issues(for: chosen, pages: { codesOn[$0] ?? [] }, severity: severity),
                                      heldOpen: chosen.isEmpty))
         }
         return units
@@ -850,15 +801,15 @@ public enum ClickUpUnitBuilder {
 
     // MARK: - Descriptions
 
-    /// The task's description, without the footer that carries the crawl's name.
-    static func markdown(for unit: ClickUpUnit, store: CrawlStore, rows: Int) throws -> String {
+    /// A fix's description: what's wrong where, and how to fix it.
+    static func markdown(for unit: Fix, store: CrawlStore, rows: Int) throws -> String {
         let config = try store.loadConfig()
         let site = URL(string: config.startURL)?.host() ?? config.startURL
         let origin = URL(string: config.startURL).flatMap { url in url.scheme.map { "\($0)://\(url.host() ?? "")" } } ?? ""
         let shown = unit.pages.prefix(rows)
         let pageRows = try store.rows(ids: Array(shown))
         func link(_ url: String) -> String {
-            "[\(ClickUpExporter.cell(ClickUpExporter.pageName(for: url, site: site)))](\(ClickUpExporter.linkTarget(url)))"
+            "[\(FixBuilder.cell(FixBuilder.pageName(for: url, site: site)))](\(FixBuilder.linkTarget(url)))"
         }
         func heading(_ count: Int, _ what: String) -> String {
             "**\(what)**" + (count > shown.count ? " — the first \(shown.count.formatted()) of \(count.formatted()), most linked-to first" : "")
@@ -876,7 +827,7 @@ public enum ClickUpUnitBuilder {
         case .target(let id):
             guard let target = try store.row(id: id) else { break }
             let status = IssueEvidenceBuilder.statusText(target.statusCode, target.error)
-            parts.append("**[\(ClickUpExporter.cell(IssueEvidenceBuilder.shorten(target.url, site: origin)))](\(ClickUpExporter.linkTarget(target.url)))** answers \(status). "
+            parts.append("**[\(FixBuilder.cell(IssueEvidenceBuilder.shorten(target.url, site: origin)))](\(FixBuilder.linkTarget(target.url)))** answers \(status). "
                 + "Linked from \(unit.pages.count.formatted()) \(unit.pages.count == 1 ? "page" : "pages").")
             for code in unit.codes where targetCodes[code] != nil {
                 let evidence = try IssueEvidenceBuilder.evidence(for: code, urlID: id, store: store)
@@ -900,13 +851,13 @@ public enum ClickUpUnitBuilder {
                 parts.append(([heading(unit.pages.count, "Linked from"), "", "| Page | Link text | Where |", "|---|---|---|"]
                     + pageRows.map { row in
                         let place = where_[row.id]
-                        return "| \(link(row.url)) | \(ClickUpExporter.cell(place?.text ?? "")) | \(place.map { $0.position == .unknown ? "" : $0.position.label } ?? "") |"
+                        return "| \(link(row.url)) | \(FixBuilder.cell(place?.text ?? "")) | \(place.map { $0.position == .unknown ? "" : $0.position.label } ?? "") |"
                     }).joined(separator: "\n"))
             }
 
         case .image(let id):
             guard let image = try store.row(id: id) else { break }
-            var lead = "**[\(ClickUpExporter.cell(IssueEvidenceBuilder.shorten(image.url, site: origin)))](\(ClickUpExporter.linkTarget(image.url)))** "
+            var lead = "**[\(FixBuilder.cell(IssueEvidenceBuilder.shorten(image.url, site: origin)))](\(FixBuilder.linkTarget(image.url)))** "
                 + "is on \(unit.pages.count.formatted()) \(unit.pages.count == 1 ? "page" : "pages") with an issue."
             if unit.members.count > 1 {
                 lead += " It's one file, served at \(unit.members.count) sizes: its alt text and weight are set once, for all of them."
@@ -937,14 +888,14 @@ public enum ClickUpUnitBuilder {
             parts.append(([heading(unit.pages.count, "Shown on"), "", "| Page | Alt text | Where |", "|---|---|---|"]
                 + pageRows.map { row in
                     let place = where_[row.id]
-                    let alt = place.map { $0.text.isEmpty ? "—" : ClickUpExporter.cell(truncated($0.text, 120)) } ?? ""
+                    let alt = place.map { $0.text.isEmpty ? "—" : FixBuilder.cell(truncated($0.text, 120)) } ?? ""
                     return "| \(link(row.url)) | \(alt) | \(place.map { $0.position == .unknown ? "" : $0.position.label } ?? "") |"
                 }).joined(separator: "\n"))
 
         case .link(let code, let target, let text):
             let address = try store.row(id: target)?.url ?? ""
             let anchor = text.isEmpty ? "The link" : "“\(text)”"
-            parts.append("**\(anchor) → [\(ClickUpExporter.cell(IssueEvidenceBuilder.shorten(address, site: origin)))](\(ClickUpExporter.linkTarget(address)))** "
+            parts.append("**\(anchor) → [\(FixBuilder.cell(IssueEvidenceBuilder.shorten(address, site: origin)))](\(FixBuilder.linkTarget(address)))** "
                 + "is on \(unit.pages.count.formatted()) pages. It's part of the theme: change it once and it clears from all of them.")
             if let definition = IssueCatalogue.definition(for: code) {
                 parts.append("**\(title(code))**\n\n\(definition.description)\n\n**How to fix:** \(definition.howToFix)")
@@ -956,7 +907,7 @@ public enum ClickUpUnitBuilder {
             parts.append("**\(unit.pages.count.formatted()) \(unit.pages.count == 1 ? "URL" : "URLs") affected on \(site).** "
                 + "It's one setting for the whole site, so this is one task rather than one per page.")
             parts.append("\(definition.description)\n\n**How to fix:** \(definition.howToFix)")
-            parts.append(try ClickUpExporter.urlTable(code: code, ids: unit.pages, site: site, store: store, rows: rows))
+            parts.append(try FixBuilder.urlTable(code: code, ids: unit.pages, site: site, store: store, rows: rows))
 
         case .cluster(let code, let value):
             guard let definition = IssueCatalogue.definition(for: code) else { break }
@@ -972,11 +923,11 @@ public enum ClickUpUnitBuilder {
             parts.append("\(definition.description)\n\n**How to fix:** \(advice ?? definition.howToFix)")
             parts.append(plainTable("Pages"))
 
-        case .template(let template) where !unit.subtasks.isEmpty:
+        case .template(let template) where !unit.issues.isEmpty:
             let kind = template.lowercased()
             parts.append("**These issues are on most \(kind) pages**, so they come from the theme's \(kind) template rather "
-                + "than each page: fix them there, once, and every page clears. Each is a subtask listing its pages.")
-            parts.append(unit.subtasks.map { "- \($0.name) — on \($0.pages.count.formatted()) \($0.pages.count == 1 ? "page" : "pages")" }
+                + "than each page: fix them there, once, and every page clears. Each is a issue listing its pages.")
+            parts.append(unit.issues.map { "- \($0.name) — on \($0.pages.count.formatted()) \($0.pages.count == 1 ? "page" : "pages")" }
                 .joined(separator: "\n"))
 
         case .template(let template):
@@ -1036,17 +987,17 @@ public enum ClickUpUnitBuilder {
             }
             parts.append(plainTable("Pages with these links"))
 
-        case .page(let id) where !unit.subtasks.isEmpty:
+        case .page(let id) where !unit.issues.isEmpty:
             guard let row = try store.row(id: id) else { break }
             let address = paginationBase(of: row.url) ?? row.url
-            var lead = "**\(link(address))** has \(unit.subtasks.count) \(unit.subtasks.count == 1 ? "issue" : "issues"), "
-                + "each a subtask with what's wrong and how to fix it"
+            var lead = "**\(link(address))** has \(unit.issues.count) \(unit.issues.count == 1 ? "issue" : "issues"), "
+                + "each a issue with what's wrong and how to fix it"
             if unit.pages.count > 1 || paginationBase(of: row.url) != nil {
                 lead += ". Its later pages (?page=2 and on) are filed here too, since they're built the same way; "
-                    + "each subtask says which pages have it"
+                    + "each issue says which pages have it"
             }
             parts.append(lead + ":")
-            parts.append(unit.subtasks.map { "- \($0.name) — \(label($0.severity))" }.joined(separator: "\n"))
+            parts.append(unit.issues.map { "- \($0.name) — \(label($0.severity))" }.joined(separator: "\n"))
 
         case .page(let id):
             guard let row = pageRows.first else { break }
@@ -1055,39 +1006,39 @@ public enum ClickUpUnitBuilder {
         return parts.joined(separator: "\n\n")
     }
 
-    /// A subtask's description: the issue on its page, or on every page of a template.
-    static func markdown(for subtask: ClickUpSubtask, in unit: ClickUpUnit, store: CrawlStore, rows: Int) throws -> String {
+    /// A issue's description: the issue on its page, or on every page of a template.
+    static func markdown(for issue: FixIssue, in unit: Fix, store: CrawlStore, rows: Int) throws -> String {
         let config = try store.loadConfig()
         let site = URL(string: config.startURL)?.host() ?? config.startURL
-        guard let first = subtask.pages.first else { return "" }
+        guard let first = issue.pages.first else { return "" }
         if case .template(let template) = unit.kind {
-            let shown = try store.rows(ids: Array(subtask.pages.prefix(rows)))
-            let evidence = try IssueEvidenceBuilder.evidence(for: subtask.code, urlID: first, store: store)
-            var parts = ["**On \(subtask.pages.count.formatted()) \(template.lowercased()) pages**, so it's the theme's \(template.lowercased()) template to fix, once."]
-            if let definition = IssueCatalogue.definition(for: subtask.code) { parts.append(definition.description) }
-            for other in subtask.also { parts.append("Also flagged as *\(title(other))*: the same problem, measured another way.") }
+            let shown = try store.rows(ids: Array(issue.pages.prefix(rows)))
+            let evidence = try IssueEvidenceBuilder.evidence(for: issue.code, urlID: first, store: store)
+            var parts = ["**On \(issue.pages.count.formatted()) \(template.lowercased()) pages**, so it's the theme's \(template.lowercased()) template to fix, once."]
+            if let definition = IssueCatalogue.definition(for: issue.code) { parts.append(definition.description) }
+            for other in issue.also { parts.append("Also flagged as *\(title(other))*: the same problem, measured another way.") }
             if !evidence.items.isEmpty {
-                parts.append("**On \(ClickUpExporter.pageName(for: shown.first?.url ?? "", site: site)), for example**"
+                parts.append("**On \(FixBuilder.pageName(for: shown.first?.url ?? "", site: site)), for example**"
                     + evidence.items.prefix(5).map { "\n- \($0.text)" }.joined())
             }
             parts.append("**How to fix:** \(evidence.fix)")
-            let more = subtask.pages.count > shown.count
-                ? " — the first \(shown.count.formatted()) of \(subtask.pages.count.formatted()), most linked-to first" : ""
+            let more = issue.pages.count > shown.count
+                ? " — the first \(shown.count.formatted()) of \(issue.pages.count.formatted()), most linked-to first" : ""
             parts.append((["**Pages**\(more)", "", "| Page |", "|---|"] + shown.map {
-                "| [\(ClickUpExporter.cell(ClickUpExporter.pageName(for: $0.url, site: site)))](\(ClickUpExporter.linkTarget($0.url))) |"
+                "| [\(FixBuilder.cell(FixBuilder.pageName(for: $0.url, site: site)))](\(FixBuilder.linkTarget($0.url))) |"
             }).joined(separator: "\n"))
             return parts.joined(separator: "\n\n")
         }
         let url = try store.row(id: first)?.url ?? ""
         var single = unit
-        single.codes = [subtask.code] + subtask.also
+        single.codes = [issue.code] + issue.also
         var text = try pageIssues(first, url: url, unit: single, store: store, site: site, heading: false)
-        if subtask.pages.count > 1 {
-            let others = try store.rows(ids: Array(subtask.pages.dropFirst().prefix(rows)))
+        if issue.pages.count > 1 {
+            let others = try store.rows(ids: Array(issue.pages.dropFirst().prefix(rows)))
             text += "\n\n**Also on** " + others.map {
-                "[\(ClickUpExporter.cell(ClickUpExporter.pageName(for: $0.url, site: site)))](\(ClickUpExporter.linkTarget($0.url)))"
+                "[\(FixBuilder.cell(FixBuilder.pageName(for: $0.url, site: site)))](\(FixBuilder.linkTarget($0.url)))"
             }.joined(separator: ", ")
-            if subtask.pages.count - 1 > others.count { text += " and \((subtask.pages.count - 1 - others.count).formatted()) more" }
+            if issue.pages.count - 1 > others.count { text += " and \((issue.pages.count - 1 - others.count).formatted()) more" }
         }
         return text
     }
@@ -1101,9 +1052,9 @@ public enum ClickUpUnitBuilder {
     }
 
     /// A page's issues in a unit: each one's specifics and its fix.
-    private static func pageIssues(_ id: Int64, url: String, unit: ClickUpUnit, store: CrawlStore,
+    private static func pageIssues(_ id: Int64, url: String, unit: Fix, store: CrawlStore,
                                    site: String, heading: Bool) throws -> String {
-        let link = "[\(ClickUpExporter.cell(ClickUpExporter.pageName(for: url, site: site)))](\(ClickUpExporter.linkTarget(url)))"
+        let link = "[\(FixBuilder.cell(FixBuilder.pageName(for: url, site: site)))](\(FixBuilder.linkTarget(url)))"
         let codes = Set(try store.issueCodes(for: id))
         var text = heading ? "### \(link)" : "**\(link)**"
         for code in unit.codes where codes.contains(code) {
@@ -1117,8 +1068,8 @@ public enum ClickUpUnitBuilder {
                 let other = try IssueEvidenceBuilder.evidence(for: pair.other, urlID: id, store: store)
                 evidence.items += other.items.filter { item in !evidence.items.contains { $0.text == item.text } }
             }
-            // Links in the theme have tasks of their own.
-            if unit.topic == .links {
+            // Links in the theme are fixes of their own.
+            if unit.group == .links {
                 evidence.items.removeAll { isTheme(pages: $0.pagesWithSameLink ?? 1, positions: [$0.position ?? .unknown]) }
             }
             text += "\n\n**\(pair?.name ?? title(code))**"
@@ -1151,5 +1102,57 @@ public enum ClickUpUnitBuilder {
 extension Array {
     func chunked(_ size: Int) -> [[Element]] {
         stride(from: 0, to: count, by: size).map { Array(self[$0..<Swift.min($0 + size, count)]) }
+    }
+}
+
+// MARK: - Formatting
+
+extension FixBuilder {
+    /// The whole URL is unreadable as a name, so the path leads and the host follows.
+    static func pageName(for address: String, site: String) -> String {
+        guard let url = URL(string: address) else { return address }
+        let path = url.path().isEmpty ? "/" : url.path()
+        let query = url.query().map { "?\($0)" } ?? ""
+        let host = url.host() ?? site
+        return host == site ? "\(path)\(query)" : "\(host)\(path)\(query)"
+    }
+
+    /// Affected URLs as a Markdown table: the page (a link), what on it is wrong, and where. When no
+    /// page has anything more specific to say — an uppercase URL is just its URL — it's one column.
+    static func urlTable(code: String, ids: [Int64], site: String, store: CrawlStore, rows limit: Int) throws -> String {
+        let shown = Array(ids.prefix(max(1, limit)))
+        var entries: [(page: String, wrong: String, place: String)] = []
+        for row in try store.rows(ids: shown) {
+            let evidence = try IssueEvidenceBuilder.evidence(for: code, urlID: row.id, store: store)
+            var wrong = evidence.items.first?.text ?? ""
+            let others = evidence.items.count + evidence.more - 1
+            if others > 0 { wrong += " (and \(others) more)" }
+            let link = "[\(cell(pageName(for: row.url, site: site)))](\(linkTarget(row.url)))"
+            entries.append((link, cell(wrong), evidence.items.first?.position?.label ?? ""))
+        }
+        var lines = ["**Affected URLs**" + (ids.count > shown.count
+            ? " — the first \(shown.count.formatted()) of \(ids.count.formatted()), most linked-to first" : ""), ""]
+        if entries.allSatisfy({ $0.wrong.isEmpty && $0.place.isEmpty }) {
+            lines += ["| URL |", "|---|"] + entries.map { "| \($0.page) |" }
+        } else {
+            lines += ["| URL | What's wrong | Where |", "|---|---|---|"]
+                + entries.map { "| \($0.page) | \($0.wrong) | \($0.place) |" }
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    /// Text safe inside a table cell: a pipe would start a new column and a newline a new row.
+    static func cell(_ text: String) -> String {
+        text.replacingOccurrences(of: "|", with: "\\|")
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+    }
+
+    /// A URL safe as a Markdown link target. Brackets and spaces end the link early — and one
+    /// client's broken Liquid template put both into its URLs.
+    static func linkTarget(_ url: String) -> String {
+        url.replacingOccurrences(of: " ", with: "%20")
+            .replacingOccurrences(of: "(", with: "%28")
+            .replacingOccurrences(of: ")", with: "%29")
     }
 }

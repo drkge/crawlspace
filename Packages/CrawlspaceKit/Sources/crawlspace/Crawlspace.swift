@@ -585,7 +585,7 @@ struct ClickUpExport: AsyncParsableCommand {
                                                                   client: try clickUp.client()) { title, _ in
             print("  \(title)")
         }
-        let places = resolved.map { found in ClickUpTopic.allCases.compactMap { found.paths[$0] }.joined(separator: ", ") }
+        let places = resolved.map { found in IssueSeverity.allCases.compactMap { found.paths[$0] }.joined(separator: ", ") }
             ?? "list \(list ?? "")"
         print("Filed into \(places): \(result.summary).")
     }

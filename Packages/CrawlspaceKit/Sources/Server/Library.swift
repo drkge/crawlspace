@@ -125,7 +125,7 @@ actor Library {
         return try await create(config: summary.config)
     }
 
-    /// Crawls just the pages behind a site's ticked fixes, with the settings of its latest crawl,
+    /// Crawls just the pages behind some of a site's fixes, with the settings of its latest crawl,
     /// so they can be verified in minutes rather than by crawling the whole site again.
     func check(host: String, keys asked: [String]? = nil) async throws -> CrawlSession {
         let worklist = try Worklist.open(host: host)

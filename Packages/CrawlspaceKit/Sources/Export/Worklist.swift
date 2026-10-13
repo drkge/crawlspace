@@ -4,18 +4,18 @@ import Foundation
 import GRDB
 import Storage
 
-/// A site's fixes, kept on this Mac across crawls: every thing to fix the crawls found, ticked off
-/// as it's done and verified by a crawl that looked again.
+/// A site's fixes, kept on this Mac across crawls: every thing to fix the crawls found, marked done
+/// as it's made and verified by a crawl that looked again.
 ///
-/// The items are the same units the ClickUp export used to file in full — a broken URL and the
-/// links to it, an image file, a page and its issues — so the detail lives here, where it can be
-/// ticked and checked, and ClickUp needs only an overview.
+/// The items are the fixes `FixBuilder` works out — a broken URL and the links to it, an image
+/// file, a page and its issues — with where each stands. The crawl page shows them, and ClickUp
+/// holds only an overview of them (`ClickUpOverview`).
 public final class Worklist: Sendable {
     public enum Status: String, Codable, Sendable, CaseIterable {
         /// Found, and not done yet.
         case open
         /// Marked done here, waiting for a check to verify it.
-        case ticked
+        case done
         /// Gone from a crawl that looked again.
         case verified
         /// Done or verified, then found again.
@@ -24,10 +24,10 @@ public final class Worklist: Sendable {
 
     public struct Item: Codable, Sendable, Hashable, Identifiable {
         public var id: String { key }
-        /// "topic|name" for a fix, "topic|name|subtask" for one issue under it.
+        /// "group|name" for a fix, "group|name|issue" for one issue under it.
         public var key: String
         public var parentKey: String?
-        public var topic: String
+        public var group: String
         public var name: String
         public var severity: IssueSeverity
         /// The kind of problem it counts as, as the client summary and ClickUp overview count them.
@@ -35,7 +35,7 @@ public final class Worklist: Sendable {
         public var status: Status
         public var firstSeen: String
         public var lastSeen: String
-        public var tickedAt: Date?
+        public var doneAt: Date?
         public var verifiedAt: Date?
         /// The crawl that verified it.
         public var verifiedBy: String?
@@ -88,7 +88,7 @@ public final class Worklist: Sendable {
                     first_seen TEXT NOT NULL,
                     last_seen TEXT NOT NULL,
                     last_seen_path TEXT NOT NULL,
-                    ticked_at REAL,
+                    done_at REAL,
                     verified_at REAL,
                     verified_by TEXT,
                     page_count INTEGER NOT NULL,
@@ -98,13 +98,19 @@ public final class Worklist: Sendable {
                 CREATE INDEX IF NOT EXISTS items_on_parent ON items(parent_key);
                 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
                 """)
-            // 2.1.16 called verified fixes "confirmed".
+            // Earlier versions called verified fixes "confirmed" and fixes marked done "ticked".
             let columns = try Row.fetchAll(db, sql: "PRAGMA table_info(items)").map { $0["name"] as String }
             if columns.contains("confirmed_at") {
                 try db.execute(sql: """
                     ALTER TABLE items RENAME COLUMN confirmed_at TO verified_at;
                     ALTER TABLE items RENAME COLUMN confirmed_by TO verified_by;
                     UPDATE items SET status = 'verified' WHERE status = 'confirmed';
+                    """)
+            }
+            if columns.contains("ticked_at") {
+                try db.execute(sql: """
+                    ALTER TABLE items RENAME COLUMN ticked_at TO done_at;
+                    UPDATE items SET status = 'done' WHERE status = 'ticked';
                     """)
             }
         }
@@ -115,7 +121,7 @@ public final class Worklist: Sendable {
         CrawlScope(config: config).startHost
     }
 
-    // MARK: - Reading and ticking
+    // MARK: - Reading and marking
 
     public func items() throws -> [Item] {
         try queue.read { db in
@@ -131,18 +137,18 @@ public final class Worklist: Sendable {
     }
 
     /// Marks fixes done, or not: a fix's issues go with it. Only open and reopened ones can be
-    /// ticked; unticking puts a ticked one back to open.
-    public func tick(_ keys: [String], ticked: Bool) throws {
+    /// marked done; marking one not done puts it back to open.
+    public func markDone(_ keys: [String], _ done: Bool) throws {
         try queue.write { db in
             for key in keys {
                 let family = try String.fetchAll(db, sql: "SELECT key FROM items WHERE key = ? OR parent_key = ?", arguments: [key, key])
                 for member in family {
-                    if ticked {
+                    if done {
                         try db.execute(sql: """
-                            UPDATE items SET status = 'ticked', ticked_at = ? WHERE key = ? AND status IN ('open', 'reopened')
+                            UPDATE items SET status = 'done', done_at = ? WHERE key = ? AND status IN ('open', 'reopened')
                             """, arguments: [Date().timeIntervalSince1970, member])
                     } else {
-                        try db.execute(sql: "UPDATE items SET status = 'open', ticked_at = NULL WHERE key = ? AND status = 'ticked'",
+                        try db.execute(sql: "UPDATE items SET status = 'open', done_at = NULL WHERE key = ? AND status = 'done'",
                                        arguments: [member])
                     }
                 }
@@ -154,7 +160,7 @@ public final class Worklist: Sendable {
     /// Verified ones are left out.
     public func checkKeys(_ keys: [String]? = nil) throws -> [String] {
         let all = try items()
-        guard let keys else { return all.filter { $0.status == .ticked }.map(\.key) }
+        guard let keys else { return all.filter { $0.status == .done }.map(\.key) }
         let asked = Set(keys)
         return all.filter { (asked.contains($0.key) || $0.parentKey.map(asked.contains) == true) && $0.status != .verified }.map(\.key)
     }
@@ -177,8 +183,8 @@ public final class Worklist: Sendable {
 
     /// Brings the list up to date with a crawl of the site.
     ///
-    /// A full crawl adds what's new, and verifies what has gone under the same rules the ClickUp
-    /// export closes by: a page's issues when the page was crawled again, anything else only when
+    /// A full crawl adds what's new, and verifies what has gone: a page's issues when the page was
+    /// crawled again, anything else only when
     /// the crawl covered the whole site. A check — a crawl of just the pages behind some fixes —
     /// adds nothing and speaks only for the fixes it was for: one it looked at in full and found
     /// gone is verified, and one it found still there is marked so.
@@ -187,20 +193,20 @@ public final class Worklist: Sendable {
         let config = try store.loadConfig()
         let site = URL(string: config.startURL)?.host() ?? config.startURL
         let crawl = store.packageURL.deletingPathExtension().lastPathComponent
-        let units = try ClickUpUnitBuilder.units(store: store, severities: Set(IssueSeverity.allCases))
+        let units = try FixBuilder.units(store: store, severities: Set(IssueSeverity.allCases))
         let rows = try Self.rows(for: units, store: store)
         let found = Dictionary(rows.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
 
         let crawled = Set(try store.rows(ids: store.rowIDs(for: URLListQuery(filter: .internalAll))).map(\.url))
-        let crawledNames = Set(crawled.map { ClickUpExporter.pageName(for: $0, site: site) })
+        let crawledNames = Set(crawled.map { FixBuilder.pageName(for: $0, site: site) })
         let wholeSite = try store.status() == .completed && store.crawledCount() < config.maxURLs
         let measured = try store.pool.read { db in try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM lighthouse_reports") ?? 0 } > 0
         let now = Date().timeIntervalSince1970
         var changes = Changes()
-        // The fixes a check was for; one made before checks said so was for the ticked ones.
+        // The fixes a check was for; one made before checks said so was for those marked done.
         let checked: Set<String>? = isCheck
             ? Set(try store.meta(Self.checkKeysMeta).flatMap { try? JSONDecoder().decode([String].self, from: Data($0.utf8)) }
-                  ?? self.items().filter { $0.status == .ticked }.map(\.key))
+                  ?? self.items().filter { $0.status == .done }.map(\.key))
             : nil
 
         try queue.write { db in
@@ -233,14 +239,14 @@ public final class Worklist: Sendable {
                           verified_at = CASE WHEN ? = 'reopened' THEN NULL ELSE verified_at END,
                           verified_by = CASE WHEN ? = 'reopened' THEN NULL ELSE verified_by END
                         WHERE key = ?
-                        """, arguments: [row.parentKey, row.topic, row.name, row.severity.rawValue, row.kind, status.rawValue, crawl,
+                        """, arguments: [row.parentKey, row.group, row.name, row.severity.rawValue, row.kind, status.rawValue, crawl,
                                          store.packageURL.path, row.pageCount, Self.json(row.checkURLs), index,
                                          status.rawValue, status.rawValue, row.key])
                 } else if !isCheck {
                     try db.execute(sql: """
                         INSERT INTO items (key, parent_key, topic, name, severity, kind, status, first_seen, last_seen, last_seen_path,
                           page_count, check_urls, sort) VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?)
-                        """, arguments: [row.key, row.parentKey, row.topic, row.name, row.severity.rawValue, row.kind, crawl, crawl,
+                        """, arguments: [row.key, row.parentKey, row.group, row.name, row.severity.rawValue, row.kind, crawl, crawl,
                                          store.packageURL.path, row.pageCount, Self.json(row.checkURLs), index])
                     changes.added += 1
                 }
@@ -277,7 +283,7 @@ public final class Worklist: Sendable {
         return name.hasPrefix("/") && !name.hasSuffix(" template")
     }
 
-    /// The name part of a "topic|name" key.
+    /// The name part of a "group|name" key.
     private static func name(of key: String) -> String {
         key.split(separator: "|", maxSplits: 1).dropFirst().first.map(String.init) ?? key
     }
@@ -287,7 +293,7 @@ public final class Worklist: Sendable {
     struct Found: Sendable {
         var key: String
         var parentKey: String?
-        var topic: String
+        var group: String
         var name: String
         var severity: IssueSeverity
         var kind: String
@@ -298,7 +304,7 @@ public final class Worklist: Sendable {
     /// How many pages a check samples for a fix that's one change everywhere.
     static let samplePages = 10
 
-    static func rows(for units: [ClickUpUnit], store: CrawlStore) throws -> [Found] {
+    static func rows(for units: [Fix], store: CrawlStore) throws -> [Found] {
         var ids: Set<Int64> = []
         for unit in units {
             ids.formUnion(unit.pages.prefix(500))
@@ -314,8 +320,8 @@ public final class Worklist: Sendable {
         func urls(_ ids: some Sequence<Int64>) -> [String] { ids.compactMap { address[$0] } }
 
         var rows: [Found] = []
-        for unit in units where !unit.heldOpen || !unit.subtasks.isEmpty || !unit.codes.isEmpty {
-            let key = "\(unit.topic.rawValue)|\(unit.name)"
+        for unit in units where !unit.heldOpen || !unit.issues.isEmpty || !unit.codes.isEmpty {
+            let key = "\(unit.group.rawValue)|\(unit.name)"
             let sample = Array(unit.pages.prefix(samplePages))
             let speed = unit.codes.allSatisfy { $0.hasPrefix("lh_") }
             let check: [String] = switch unit.kind {
@@ -328,15 +334,15 @@ public final class Worklist: Sendable {
             case .pattern: urls(unit.members.prefix(200) + sample)
             case .template: speed ? [] : urls(sample)
             }
-            rows.append(Found(key: key, parentKey: nil, topic: unit.topic.rawValue, name: unit.name, severity: unit.severity,
+            rows.append(Found(key: key, parentKey: nil, group: unit.group.rawValue, name: unit.name, severity: unit.severity,
                               kind: ClientSummaryBuilder.kindCode(of: unit), pageCount: unit.pages.count,
                               checkURLs: speed ? [] : check))
-            for subtask in unit.subtasks {
-                let speed = subtask.code.hasPrefix("lh_")
-                let pages: [String] = if case .template = unit.kind { urls(subtask.pages.prefix(samplePages)) } else { urls(subtask.pages) }
-                rows.append(Found(key: "\(key)|\(subtask.name)", parentKey: key, topic: unit.topic.rawValue, name: subtask.name,
-                                  severity: subtask.severity, kind: ClientSummaryBuilder.kindCode(for: subtask.code),
-                                  pageCount: subtask.pages.count, checkURLs: speed ? [] : pages))
+            for issue in unit.issues {
+                let speed = issue.code.hasPrefix("lh_")
+                let pages: [String] = if case .template = unit.kind { urls(issue.pages.prefix(samplePages)) } else { urls(issue.pages) }
+                rows.append(Found(key: "\(key)|\(issue.name)", parentKey: key, group: unit.group.rawValue, name: issue.name,
+                                  severity: issue.severity, kind: ClientSummaryBuilder.kindCode(for: issue.code),
+                                  pageCount: issue.pages.count, checkURLs: speed ? [] : pages))
             }
         }
         return rows
@@ -344,20 +350,20 @@ public final class Worklist: Sendable {
 
     // MARK: - Details
 
-    /// A fix's description, from the crawl it was last seen in: the same text the ClickUp export
-    /// wrote, with what's wrong where and how to fix it.
+    /// A fix's description, from the crawl it was last seen in: what's wrong where and how to fix
+    /// it.
     public func details(for key: String) throws -> String {
         guard let path = try lastSeenPath(for: key) else { return "" }
         let units = try Self.cache.units(at: path)
         let parts = key.split(separator: "|", maxSplits: 2).map(String.init)
-        guard parts.count >= 2, let unit = units.first(where: { $0.topic.rawValue == parts[0] && $0.name == parts[1] }) else {
+        guard parts.count >= 2, let unit = units.first(where: { $0.group.rawValue == parts[0] && $0.name == parts[1] }) else {
             return "Not in \(URL(filePath: path).deletingPathExtension().lastPathComponent) any more."
         }
         let store = try CrawlStore.open(at: URL(filePath: path))
-        if parts.count == 3, let subtask = unit.subtasks.first(where: { $0.name == parts[2] }) {
-            return try ClickUpUnitBuilder.markdown(for: subtask, in: unit, store: store, rows: 50)
+        if parts.count == 3, let issue = unit.issues.first(where: { $0.name == parts[2] }) {
+            return try FixBuilder.markdown(for: issue, in: unit, store: store, rows: 50)
         }
-        return try ClickUpUnitBuilder.markdown(for: unit, store: store, rows: 50)
+        return try FixBuilder.markdown(for: unit, store: store, rows: 50)
     }
 
     /// The units of the crawl last asked about, so opening one fix after another doesn't work them
@@ -367,14 +373,14 @@ public final class Worklist: Sendable {
     private final class UnitCache: @unchecked Sendable {
         private let lock = NSLock()
         private var path: String?
-        private var units: [ClickUpUnit] = []
+        private var units: [Fix] = []
 
-        func units(at path: String) throws -> [ClickUpUnit] {
+        func units(at path: String) throws -> [Fix] {
             lock.lock()
             defer { lock.unlock() }
             if self.path == path { return units }
             let store = try CrawlStore.open(at: URL(filePath: path))
-            units = try ClickUpUnitBuilder.units(store: store, severities: Set(IssueSeverity.allCases))
+            units = try FixBuilder.units(store: store, severities: Set(IssueSeverity.allCases))
             self.path = path
             return units
         }
@@ -384,12 +390,12 @@ public final class Worklist: Sendable {
 
     private static func item(_ row: Row) -> Item {
         let checks: String = row["check_urls"]
-        let ticked: Double? = row["ticked_at"]
+        let done: Double? = row["done_at"]
         let verified: Double? = row["verified_at"]
-        return Item(key: row["key"], parentKey: row["parent_key"], topic: row["topic"], name: row["name"],
+        return Item(key: row["key"], parentKey: row["parent_key"], group: row["topic"], name: row["name"],
                     severity: IssueSeverity(rawValue: row["severity"]) ?? .notice, kind: row["kind"],
                     status: Status(rawValue: row["status"]) ?? .open, firstSeen: row["first_seen"], lastSeen: row["last_seen"],
-                    tickedAt: ticked.map(Date.init(timeIntervalSince1970:)),
+                    doneAt: done.map(Date.init(timeIntervalSince1970:)),
                     verifiedAt: verified.map(Date.init(timeIntervalSince1970:)), verifiedBy: row["verified_by"],
                     pageCount: row["page_count"],
                     checkURLs: (try? JSONDecoder().decode([String].self, from: Data(checks.utf8))) ?? [])

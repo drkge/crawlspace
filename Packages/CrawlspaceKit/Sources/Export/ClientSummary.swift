@@ -5,8 +5,8 @@ import Storage
 
 /// A short summary for a client: what is wrong with the site, in plain words, and what to do first.
 ///
-/// The audit report counts URLs, so a broken link in the footer reads as 3,000 errors; the ClickUp
-/// grouping counts fixes, which on a shop of 10,000 products is still 10,000 of something. A client
+/// The audit report counts URLs, so a broken link in the footer reads as 3,000 errors; the fixes
+/// count changes to make, which on a shop of 10,000 products is still 10,000 of something. A client
 /// wants the kinds of problem — *4,922 images are larger than they need to be* — with how many pages
 /// each touches and whether one change clears it. No URL lists, no crawl settings, no jargon: two or
 /// three pages a client reads.
@@ -58,22 +58,22 @@ public enum ClientSummaryBuilder {
     /// The kind of problem an issue counts as: a pair measured two ways under the worse of the
     /// two, and the issue on pages linking to a broken URL under the URL's own.
     public static func kindCode(for code: String) -> String {
-        if let pair = ClickUpUnitBuilder.pair(of: code) { return pair.primary }
-        if let target = ClickUpUnitBuilder.targetCodes.first(where: { $0.value == code })?.key { return target }
+        if let pair = FixBuilder.pair(of: code) { return pair.primary }
+        if let target = FixBuilder.targetCodes.first(where: { $0.value == code })?.key { return target }
         return code
     }
 
     /// The kind of problem a fix counts as, by its worst issue.
-    public static func kindCode(of unit: ClickUpUnit) -> String {
+    public static func kindCode(of unit: Fix) -> String {
         if case .productCards = unit.kind { return productCards }
-        let own = unit.codes.filter { !ClickUpUnitBuilder.linkSourceCodes.contains($0) }
+        let own = unit.codes.filter { !FixBuilder.linkSourceCodes.contains($0) }
         return kindCode(for: own.first ?? unit.codes.first ?? "")
     }
 
     /// The crawl's problems by kind, worst first. The issue on pages linking to a broken URL is
     /// the same problem as the URL itself, so it is counted there.
     static func kinds(store: CrawlStore) throws -> [Kind] {
-        let units = try ClickUpUnitBuilder.units(store: store, severities: Set(IssueSeverity.allCases))
+        let units = try FixBuilder.units(store: store, severities: Set(IssueSeverity.allCases))
         var byCode: [String: Kind] = [:]
         for unit in units {
             if case .productCards = unit.kind {
@@ -86,11 +86,11 @@ public enum ClientSummaryBuilder {
             default: false
             }
             // A pair measured two ways is one problem, counted under the worse of the two.
-            let codes = Set(unit.codes.map { ClickUpUnitBuilder.pair(of: $0)?.primary ?? $0 })
-            for code in codes where !ClickUpUnitBuilder.linkSourceCodes.contains(code) {
+            let codes = Set(unit.codes.map { FixBuilder.pair(of: $0)?.primary ?? $0 })
+            for code in codes where !FixBuilder.linkSourceCodes.contains(code) {
                 guard let definition = IssueCatalogue.definition(for: code) else { continue }
                 var kind = byCode[code] ?? Kind(code: code, severity: severity(of: definition),
-                                                area: area(of: definition, in: unit.topic))
+                                                area: area(of: definition, in: unit.group))
                 // A pattern stands for each of its addresses.
                 if case .pattern = unit.kind { kind.items += unit.counts["addresses"] ?? 1 } else { kind.items += 1 }
                 kind.pages.formUnion(unit.pages)
@@ -103,17 +103,17 @@ public enum ClientSummaryBuilder {
 
     /// Where a problem belongs: speed and product data by what they are, wherever they were filed,
     /// so a Shopify product's long title reads as a page problem, not a product-data one.
-    private static func area(of definition: IssueDefinition, in topic: ClickUpTopic) -> Area {
+    private static func area(of definition: IssueDefinition, in group: FixGroup) -> Area {
         if definition.category == .speed { return .speed }
         if definition.category == .ecommerce { return .products }
-        let area = Area.of(topic)
+        let area = Area.of(group)
         return area == .products ? .pages : area
     }
 
     /// An issue's severity, or that of the links to it when those are worse: a broken page is as
     /// urgent as the links sending people there.
     private static func severity(of definition: IssueDefinition) -> IssueSeverity {
-        guard let paired = ClickUpUnitBuilder.targetCodes[definition.code] ?? nil,
+        guard let paired = FixBuilder.targetCodes[definition.code] ?? nil,
               let links = IssueCatalogue.definition(for: paired) else { return definition.severity }
         return min(definition.severity, links.severity)
     }
@@ -340,8 +340,8 @@ public enum ClientSummaryBuilder {
     enum Area: CaseIterable {
         case links, images, settings, duplicates, speed, products, pages
 
-        static func of(_ topic: ClickUpTopic) -> Area {
-            switch topic {
+        static func of(_ group: FixGroup) -> Area {
+            switch group {
             case .links: .links
             case .images: .images
             case .siteSettings: .settings

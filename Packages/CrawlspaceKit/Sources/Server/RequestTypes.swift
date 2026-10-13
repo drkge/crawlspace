@@ -68,9 +68,9 @@ struct CheckBody: Decodable, Sendable {
     var keys: [String]?
 }
 
-struct TickBody: Decodable, Sendable {
+struct DoneBody: Decodable, Sendable {
     var keys: [String]
-    var ticked: Bool
+    var done: Bool
 }
 
 struct ClickUpSpaceChoice: Encodable, Sendable {
@@ -90,15 +90,6 @@ struct ClickUpListChoice: Encodable, Sendable {
 struct ClickUpDestinationDTO: Encodable, Sendable {
     var site: String
     var destination: ClickUpDestination?
-    /// The lists this crawl files into: by kind of page for a Shopify store, by severity otherwise.
-    var topics: [ClickUpTopicDTO]
-    var shopify: Bool
-}
-
-struct ClickUpTopicDTO: Encodable, Sendable {
-    var id: String
-    var label: String
-    var hint: String
 }
 
 struct ClickUpProgress: Encodable, Sendable {
