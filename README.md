@@ -390,6 +390,10 @@ placeholder at the sizes that are missing — 64pt among them.
 
 - **Crawler traps.** Calendars and faceted navigation generate URLs forever. Crawlspace caps
   distinct query strings per path (1,000 by default) and repeated path segments.
+- **A crawl starts where the site answers.** Asked for example.com, a site that answers at
+  www.example.com (or the other way round, or over https when asked over http) is crawled there.
+  Otherwise, with only the start's own host counted as the site, every page would be taken for
+  another site's: checked that it answers, never read.
 - **Shopify stores get a profile of their own.** When a crawl starts, Crawlspace looks at the start
   page, and on a Shopify store (recognised by its headers or theme) it leaves out what Shopify
   generates by design: storefront filter combinations, sorting, site search, tag combinations,
