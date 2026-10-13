@@ -57,7 +57,7 @@ public enum ReportBuilder {
 
     // MARK: - Sections
 
-    private static func header(options: ReportOptions, config: CrawlConfig, started: Date?) -> String {
+    static func header(options: ReportOptions, config: CrawlConfig, started: Date?) -> String {
         let site = CrawlScope(config: config).startHost
         let logo = options.logo.map {
             "<img class=\"logo\" src=\"data:image/png;base64,\($0.base64EncodedString())\" alt=\"\">"
@@ -195,7 +195,7 @@ public enum ReportBuilder {
 
     // MARK: - Document
 
-    private static func document(title: String, accent: String, body: String) -> String {
+    static func document(title: String, accent: String, body: String, style: String = "") -> String {
         """
         <!doctype html>
         <html lang="en"><head><meta charset="utf-8"><title>\(escape(title))</title>
@@ -239,6 +239,7 @@ public enum ReportBuilder {
           .settings td { padding: 4px 0; border-bottom: 1px solid var(--line); word-break: break-all; }
           section { page-break-inside: auto; }
           @page { margin: 14mm; }
+          \(style)
         </style></head>
         <body>\(body)</body></html>
         """

@@ -113,8 +113,17 @@ The status bar shows how many connections are open, and both the automatic chang
 take effect on a running crawl without stopping it.
 
 The **Export** menu has the things worth taking away from a finished crawl: the issues into
-ClickUp, the internal HTML table (or the table on screen) as CSV or Excel, and the client report as
-a PDF or web page. They download through the browser.
+ClickUp, the internal HTML table (or the table on screen) as CSV or Excel, and two reports as a PDF
+or web page. They download through the browser.
+
+- **Client Summary** is two or three pages a client reads: the kinds of problem the site has, in
+  plain words with how many pages each touches (*2,165 images are larger files than they need to be,
+  shown on 12,251 pages*), the five to start with, each area in a paragraph, what's working, and
+  which fixes are one change for the whole site. Pick an earlier crawl of the site and it opens with
+  what has changed since: problems fixed, problems new, and pages affected then and now. No URL
+  lists and no crawl settings.
+- **Audit Report** is the full audit: every issue type with its count, description, fix and
+  example URLs, the response-code and depth charts, and how the crawl was run.
 
 ## Filing issues into ClickUp
 
@@ -287,7 +296,8 @@ Useful flags: `--render` (with `--render-wait`), `--mode sitemap --sitemap <url>
 (never a flag, so it stays out of shell history), and `--cookie "session=…"`.
 
 Other commands: `summary <package>` (text or `--json`), `export <package> --out file.csv --filter internal-html`,
-`report <package> --out audit.pdf --client "Acme"` for the client report, `lighthouse <package>
+`report <package> --out audit.pdf --client "Acme"` for the audit report (`--summary`, with
+`--since <earlier package>`, for the client summary), `lighthouse <package>
 [--top N | --url U]` to measure speed, `robots <url>…` to test URLs against a site's robots.txt,
 `render <url>` to see exactly what JavaScript changes on a page, `compare <baseline> <current>` to
 diff two crawls, `analyse <package>` to re-run the analysis, and `clickup` / `clickup-lists` to file

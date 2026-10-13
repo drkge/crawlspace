@@ -209,13 +209,24 @@ struct CrawlRoutes {
             options.maxIssues = min(max(body.maxIssues ?? options.maxIssues, 5), 80)
             options.examplesPerIssue = min(max(body.examplesPerIssue ?? options.examplesPerIssue, 1), 20)
             let asPDF = body.format != "html"
+            let isSummary = body.kind == "summary"
+            if isSummary, body.title?.isEmpty ?? true { options.title = "Website Summary" }
             let reportOptions = options
 
             let session = try await session(context)
             let store = session.store
             let name = await session.name
-            let data = try await session.runExport(asPDF ? "the PDF report" : "the HTML report") {
-                let html = try await background { try ReportBuilder.html(store: store, options: reportOptions) }
+            var baseline: CrawlStore?
+            if isSummary, let id = body.baseline, !id.isEmpty {
+                baseline = try CrawlStore.open(at: try await library.session(id).packageURL)
+            }
+            let earlier = baseline
+            let what = isSummary ? "the client summary" : asPDF ? "the PDF report" : "the HTML report"
+            let data = try await session.runExport(what) {
+                let html = try await background {
+                    isSummary ? try ClientSummaryBuilder.html(store: store, baseline: earlier, options: reportOptions)
+                              : try ReportBuilder.html(store: store, options: reportOptions)
+                }
                 return asPDF ? try await PDFRenderer.pdf(html: html) : Data(html.utf8)
             }
             return download(data, filename: "\(name) – \(options.title).\(asPDF ? "pdf" : "html")",
