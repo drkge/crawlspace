@@ -92,6 +92,7 @@ struct MiscRoutes {
         }
 
         registerClickUp(on: router)
+        registerFixes(on: router)
         registerRobots(on: router)
         registerSchedules(on: router)
 
@@ -230,6 +231,53 @@ struct MiscRoutes {
             throw ServerError.badRequest("Add your ClickUp API token in Settings first.")
         }
         return ClickUpClient(token: token)
+    }
+
+    // MARK: - Fixes
+
+    private func registerFixes(on router: Router<AppContext>) {
+        // A site's list of fixes, with what each is, where it stands, and what a check would crawl.
+        router.get("api/sites/:host/fixes") { _, context in
+            let host = try context.parameters.string("host")
+            guard Worklist.exists(for: host) else { throw ServerError.notFound("\(host) has no list of fixes yet.") }
+            let items = try await background { try Worklist.open(host: host).items() }
+            return JSON(FixListDTO(host: host, items: items))
+        }
+
+        router.post("api/sites/:host/fixes/tick") { request, context in
+            let host = try context.parameters.string("host")
+            let body = try await request.decodeJSON(TickBody.self, context: context)
+            try await background { try Worklist.open(host: host).tick(body.keys, ticked: body.ticked) }
+            return JSON(MessageDTO(message: "ok"))
+        }
+
+        router.get("api/sites/:host/fixes/details") { request, context in
+            let host = try context.parameters.string("host")
+            let key = request.uri.queryParameters.get("key") ?? ""
+            let markdown = try await background { try Worklist.open(host: host).details(for: key) }
+            return JSON(MessageDTO(message: markdown))
+        }
+
+        // Crawls just the pages behind the ticked fixes, to confirm them.
+        router.post("api/sites/:host/fixes/check") { _, context in
+            let host = try context.parameters.string("host")
+            let session = try await library.check(host: host)
+            return JSON(["id": session.id])
+        }
+
+        // Whether this crawl's site has a list of fixes, and starting one from it.
+        router.get("api/crawls/:id/fixes") { _, context in
+            let store = try await library.session(context.parameters.string("id")).store
+            let host = Worklist.host(of: try store.loadConfig())
+            return JSON(FixTrackingDTO(host: host, tracking: Worklist.exists(for: host)))
+        }
+
+        router.post("api/crawls/:id/fixes/track") { _, context in
+            let store = try await library.session(context.parameters.string("id")).store
+            let host = Worklist.host(of: try store.loadConfig())
+            let changes = try await background { try Worklist.open(host: host).update(from: store, isCheck: false) }
+            return JSON(FixTrackingDTO(host: host, tracking: true, added: changes.added))
+        }
     }
 
     // MARK: - Robots.txt tester

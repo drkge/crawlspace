@@ -1098,3 +1098,49 @@ table.tokens td.actions button + button {
 .severity-row .check {
   padding-top: 5px;
 }
+
+/* Fixes */
+
+.fix-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--border);
+}
+/* A grid item grows to fit its longest URL unless told it may shrink. */
+.fix-group {
+  min-width: 0;
+}
+.fix-group summary .hint {
+  margin-left: 8px;
+}
+.fix-row .fix-name {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fix-children {
+  padding-left: 28px;
+}
+.fix-detail {
+  padding: 4px 16px 12px 40px;
+  overflow-x: auto;
+}
+.markdown p {
+  margin: 6px 0;
+}
+.markdown ul {
+  margin: 6px 0;
+  padding-left: 18px;
+}
+.markdown table {
+  margin: 6px 0;
+}
+.markdown code {
+  font-size: 12px;
+}

@@ -55,6 +55,21 @@ public enum ClientSummaryBuilder {
     /// The product card linking through collection addresses, which stands for several issues.
     static let productCards = "product_cards"
 
+    /// The kind of problem an issue counts as: a pair measured two ways under the worse of the
+    /// two, and the issue on pages linking to a broken URL under the URL's own.
+    public static func kindCode(for code: String) -> String {
+        if let pair = ClickUpUnitBuilder.pair(of: code) { return pair.primary }
+        if let target = ClickUpUnitBuilder.targetCodes.first(where: { $0.value == code })?.key { return target }
+        return code
+    }
+
+    /// The kind of problem a fix counts as, by its worst issue.
+    public static func kindCode(of unit: ClickUpUnit) -> String {
+        if case .productCards = unit.kind { return productCards }
+        let own = unit.codes.filter { !ClickUpUnitBuilder.linkSourceCodes.contains($0) }
+        return kindCode(for: own.first ?? unit.codes.first ?? "")
+    }
+
     /// The crawl's problems by kind, worst first. The issue on pages linking to a broken URL is
     /// the same problem as the URL itself, so it is counted there.
     static func kinds(store: CrawlStore) throws -> [Kind] {

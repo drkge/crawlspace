@@ -125,6 +125,22 @@ or web page. They download through the browser.
 - **Audit Report** is the full audit: every issue type with its count, description, fix and
   example URLs, the response-code and depth charts, and how the crawl was run.
 
+## Fixes
+
+**Fixes** (on a crawl's toolbar, or beside the site on the start page) keeps a site's list of things to
+fix on this Mac, across crawls. It's started from a crawl the first time; after that every full crawl
+of the site updates it. Each fix is one change, grouped as the ClickUp export groups them: a broken
+address and every link to it, an image file, a setting, a page and its issues, and so on, each with
+what's wrong where and how to fix it.
+
+Tick a fix once it's done, then **Check**: Crawlspace crawls just the pages involved — the page, the
+broken address and the pages linking to it, or ten pages that carry a change made in the theme — and
+confirms each ticked fix, or marks it *still there*. It takes seconds rather than a full crawl, and
+each check is kept in Recent Crawls as "<site> fix check <date>". A full crawl confirms anything else
+that has gone, under the same rules as closing ClickUp tasks: a page's issues once the page has been
+crawled again, anything else only from a crawl of the whole site. Speed problems are confirmed by the
+next speed check, not by a quick one. Anything that comes back is reopened.
+
 ## Filing issues into ClickUp
 
 **Export ▸ Issues to ClickUp…** (⇧⌘K) turns what the crawl found into work: **one task per thing
@@ -284,7 +300,8 @@ cd Web && npm install && npm run dev
 ```
 
 then open the `http://localhost:5173/auth?t=…` link the server prints, which signs that browser in.
-Vite passes API calls through to the server. `CRAWLSPACE_HOME=/some/folder` keeps a development
+Vite passes API calls through to the server. With the real app running on 7777, start the development copy with
+`--port 7790` and the interface with `CRAWLSPACE_DEV_SERVER=http://127.0.0.1:7790`. `CRAWLSPACE_HOME=/some/folder` keeps a development
 copy's crawls, secrets and settings apart from your real ones (and leaves the real launchd jobs
 alone); tests always get a throwaway folder of their own. For Lighthouse without the bundled runtime, set `CRAWLSPACE_NODE` and
 `CRAWLSPACE_LIGHTHOUSE_CLI` to a Node and a `lighthouse/cli/index.js` installed some other way.

@@ -1,6 +1,7 @@
 import Audit
 import CrawlCore
 import Crawler
+import Export
 import Foundation
 import Lighthouse
 import Storage
@@ -161,6 +162,7 @@ actor CrawlSession {
         events.publish("changed", ["reason": "finished"])
         publishState()
         onActivityChange()
+        if status == .completed || status == .stopped { updateWorklist() }
         // A crawl that ran to the end gets its speed measured; a stopped one is left for later.
         if status == .completed, config.lighthouseTopPages > 0 {
             try? startLighthouse(top: config.lighthouseTopPages)
@@ -236,7 +238,27 @@ actor CrawlSession {
         if update.done > 0 { events.publish("changed", ["reason": "lighthouse"]) }
     }
 
+    /// Brings the site's list of fixes up to date with this crawl, when the site has one, or when
+    /// this crawl was a check of it.
+    private func updateWorklist() {
+        let store = store
+        let events = events
+        Task.detached(priority: .utility) {
+            guard let config = try? store.loadConfig() else { return }
+            let checkFor = try? store.meta("check_for")
+            let host = checkFor ?? Worklist.host(of: config)
+            guard checkFor != nil || (config.mode != .list && Worklist.exists(for: host)) else { return }
+            do {
+                let changes = try Worklist.open(host: host).update(from: store, isCheck: checkFor != nil)
+                events.publish("worklist", changes)
+            } catch {
+                events.publish("error", MessageDTO(message: "Couldn't update the list of fixes: \(error.localizedDescription)"))
+            }
+        }
+    }
+
     private func lighthouseFinished(message: String) {
+        updateWorklist()
         lighthouseTask = nil
         lighthouseProgress = nil
         lighthouseMessage = message

@@ -57,6 +57,22 @@ struct PasswordBody: Decodable {
     var password: String
 }
 
+struct FixListDTO: Encodable, Sendable {
+    var host: String
+    var items: [Worklist.Item]
+}
+
+struct FixTrackingDTO: Encodable, Sendable {
+    var host: String
+    var tracking: Bool
+    var added: Int?
+}
+
+struct TickBody: Decodable, Sendable {
+    var keys: [String]
+    var ticked: Bool
+}
+
 struct ClickUpSpaceChoice: Encodable, Sendable {
     var id: String
     var name: String

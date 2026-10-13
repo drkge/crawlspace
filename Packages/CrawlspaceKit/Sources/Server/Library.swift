@@ -1,5 +1,6 @@
 import CrawlCore
 import Crawler
+import Export
 import Foundation
 import Hummingbird
 import Storage
@@ -124,6 +125,34 @@ actor Library {
         return try await create(config: summary.config)
     }
 
+    /// Crawls just the pages behind a site's ticked fixes, with the settings of its latest crawl,
+    /// so they can be confirmed in minutes rather than by crawling the whole site again.
+    func check(host: String) async throws -> CrawlSession {
+        let urls = try Worklist.open(host: host).checkURLs()
+        guard !urls.isEmpty else {
+            throw ServerError.badRequest("Tick the fixes you've made first: there's nothing to check yet.")
+        }
+        let latest = await list().first { $0.site == host && $0.readable && !$0.name.contains(" fix check ") }
+        guard let latest, var config = CrawlStore.summary(of: try packageURL(for: latest.id))?.config else {
+            throw ServerError.badRequest("There's no crawl of \(host) to take the settings from.")
+        }
+        config.mode = .list
+        config.listURLs = urls
+        config.lighthouseTopPages = 0
+        try CrawlspacePaths.ensure(directory)
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH.mm.ss"
+        let url = directory.appending(path: "\(host) fix check \(formatter.string(from: Date()))")
+            .appendingPathExtension(CrawlStore.packageExtension)
+        let store = try CrawlStore.create(at: url, config: config)
+        try store.setMeta("check_for", host)
+        try store.close()
+        let session = try session(Self.id(forLibraryPackage: url))
+        try await session.start()
+        events.publish("crawls", ["reason": "created"])
+        return session
+    }
+
     /// Moves a crawl to the Trash, as 1.x did, so a mistake can be undone in Finder.
     func trash(_ id: String) async throws {
         let url = try packageURL(for: id)
@@ -163,7 +192,8 @@ actor Library {
                 id: id, name: url.deletingPathExtension().lastPathComponent,
                 site: summary?.site ?? "", startURL: summary?.startURL ?? "",
                 status: summary?.status ?? .new, crawled: summary?.crawled ?? 0,
-                modified: modified, isRunning: running, readable: summary != nil
+                modified: modified, isRunning: running, readable: summary != nil,
+                tracking: summary.map { Worklist.exists(for: $0.site) } ?? false
             ))
         }
         return items.sorted { $0.modified > $1.modified }

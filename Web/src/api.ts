@@ -127,6 +127,8 @@ export interface CrawlListItem {
   modified: string
   isRunning: boolean
   readable: boolean
+  /** The site has a list of fixes. */
+  tracking: boolean
 }
 
 export interface Issue {
