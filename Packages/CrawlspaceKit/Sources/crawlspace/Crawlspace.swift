@@ -334,7 +334,7 @@ struct ExportCommand: AsyncParsableCommand {
 // MARK: - report
 
 struct Report: AsyncParsableCommand {
-    static let configuration = CommandConfiguration(abstract: "Build a client-facing audit report (PDF or HTML).")
+    static let configuration = CommandConfiguration(abstract: "Build a client-facing audit report or summary (PDF or HTML).")
 
     @Argument(help: "Path to a .crawlspace package.") var package: String
     @Option(name: .shortAndLong, help: "Output file (.pdf or .html).") var out: String
@@ -344,6 +344,8 @@ struct Report: AsyncParsableCommand {
     @Option(help: "Accent colour, e.g. #2F6FEB.") var accent: String = "#2F6FEB"
     @Option(help: "Logo image (PNG) to embed in the header.") var logo: String?
     @Option(help: "How many issues to detail.") var issues: Int = 25
+    @Flag(help: "A short client summary in plain words, rather than the full audit.") var summary = false
+    @Option(help: "With --summary: an earlier crawl of the site, to show what has changed since.") var since: String?
 
     mutating func run() async throws {
         let store = try CrawlStore.open(at: URL(filePath: package))
@@ -351,8 +353,12 @@ struct Report: AsyncParsableCommand {
         options.clientName = client ?? ""
         options.preparedBy = preparedBy ?? ""
         if let logo { options.logo = try Data(contentsOf: URL(filePath: logo)) }
+        if summary, title == "SEO Audit" { options.title = "Website Summary" }
 
-        let html = try ReportBuilder.html(store: store, options: options)
+        let html = summary
+            ? try ClientSummaryBuilder.html(store: store, baseline: try since.map { try CrawlStore.open(at: URL(filePath: $0)) },
+                                            options: options)
+            : try ReportBuilder.html(store: store, options: options)
         let url = URL(filePath: out)
         if url.pathExtension.lowercased() == "pdf" {
             let pdf = try await PDFRenderer.pdf(html: html)

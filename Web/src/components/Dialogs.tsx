@@ -16,6 +16,7 @@ import { Dialog, Severity, messageOf, useAction, useToast } from '../ui'
 
 interface ReportSettings {
   title: string
+  summaryTitle?: string
   clientName: string
   preparedBy: string
   notes: string
@@ -25,8 +26,21 @@ interface ReportSettings {
   format: 'pdf' | 'html'
 }
 
-/** The client-facing audit report, as a PDF or a self-contained web page. */
-export function ReportDialog({ crawlID, onClose }: { crawlID: string; onClose: () => void }) {
+/**
+ * The full audit report, or the short client summary in plain words, as a PDF or a self-contained
+ * web page. Both share the branding; the summary can show progress since an earlier crawl.
+ */
+export function ReportDialog({
+  crawlID,
+  site,
+  kind,
+  onClose,
+}: {
+  crawlID: string
+  site: string
+  kind: 'audit' | 'summary'
+  onClose: () => void
+}) {
   const toast = useToast()
   const [settings, setSettings] = useStoredState<ReportSettings>('report', {
     title: 'SEO Audit',
@@ -40,7 +54,25 @@ export function ReportDialog({ crawlID, onClose }: { crawlID: string; onClose: (
   })
   const [logo, setLogo] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [earlier, setEarlier] = useState<CrawlListItem[]>([])
+  const [baseline, setBaseline] = useState('')
   const set = (patch: Partial<ReportSettings>) => setSettings({ ...settings, ...patch })
+  const isSummary = kind === 'summary'
+  const title = isSummary ? (settings.summaryTitle ?? 'Website Summary') : settings.title
+  const setTitle = (value: string) => set(isSummary ? { summaryTitle: value } : { title: value })
+
+  // Earlier crawls of the same site, newest first, the latest picked to show progress since.
+  useEffect(() => {
+    if (!isSummary) return
+    api.get<CrawlListItem[]>('/api/crawls').then((all) => {
+      const current = all.find((crawl) => crawl.id === crawlID)
+      const before = all.filter(
+        (crawl) => crawl.id !== crawlID && crawl.readable && crawl.site === site && (!current || crawl.modified < current.modified),
+      )
+      setEarlier(before)
+      setBaseline(before[0]?.id ?? '')
+    })
+  }, [crawlID, site, isSummary])
 
   const chooseLogo = (file: File | undefined) => {
     if (!file) return
@@ -52,7 +84,13 @@ export function ReportDialog({ crawlID, onClose }: { crawlID: string; onClose: (
   const build = async () => {
     setBusy(true)
     try {
-      await downloadFrom('POST', `${crawlPath(crawlID)}/export/report`, { ...settings, logo })
+      await downloadFrom('POST', `${crawlPath(crawlID)}/export/report`, {
+        ...settings,
+        title,
+        logo,
+        kind,
+        baseline: isSummary ? baseline : undefined,
+      })
       onClose()
     } catch (error) {
       toast(messageOf(error), true)
@@ -63,7 +101,7 @@ export function ReportDialog({ crawlID, onClose }: { crawlID: string; onClose: (
 
   return (
     <Dialog
-      title="Audit Report"
+      title={isSummary ? 'Client Summary' : 'Audit Report'}
       onClose={onClose}
       busy={busy}
       footer={
@@ -81,7 +119,7 @@ export function ReportDialog({ crawlID, onClose }: { crawlID: string; onClose: (
             Cancel
           </button>
           <button className="primary" onClick={build} disabled={busy}>
-            {busy ? 'Building…' : 'Download Report'}
+            {busy ? 'Building…' : isSummary ? 'Download Summary' : 'Download Report'}
           </button>
         </>
       }
@@ -89,7 +127,7 @@ export function ReportDialog({ crawlID, onClose }: { crawlID: string; onClose: (
       <div className="form-grid">
         <label className="field">
           <span>Title</span>
-          <input type="text" value={settings.title} onChange={(event) => set({ title: event.target.value })} />
+          <input type="text" value={title} onChange={(event) => setTitle(event.target.value)} />
         </label>
         <label className="field">
           <span>Client</span>
@@ -113,15 +151,43 @@ export function ReportDialog({ crawlID, onClose }: { crawlID: string; onClose: (
           <span>Logo (PNG or JPEG)</span>
           <input type="file" accept="image/png,image/jpeg" onChange={(event) => chooseLogo(event.target.files?.[0])} />
         </label>
-        <label className="field">
-          <span>Issues to include</span>
-          <input type="number" min={5} max={80} value={settings.maxIssues} onChange={(event) => set({ maxIssues: Number(event.target.value) })} />
-        </label>
-        <label className="field">
-          <span>Examples per issue</span>
-          <input type="number" min={1} max={20} value={settings.examplesPerIssue} onChange={(event) => set({ examplesPerIssue: Number(event.target.value) })} />
-        </label>
+        {!isSummary && (
+          <>
+            <label className="field">
+              <span>Issues to include</span>
+              <input type="number" min={5} max={80} value={settings.maxIssues} onChange={(event) => set({ maxIssues: Number(event.target.value) })} />
+            </label>
+            <label className="field">
+              <span>Examples per issue</span>
+              <input
+                type="number"
+                min={1}
+                max={20}
+                value={settings.examplesPerIssue}
+                onChange={(event) => set({ examplesPerIssue: Number(event.target.value) })}
+              />
+            </label>
+          </>
+        )}
       </div>
+      {isSummary && (
+        <label className="field">
+          <span>Show progress since</span>
+          <select value={baseline} onChange={(event) => setBaseline(event.target.value)}>
+            <option value="">Nothing — this crawl only</option>
+            {earlier.map((crawl) => (
+              <option key={crawl.id} value={crawl.id}>
+                {crawl.name} · {relativeDate(crawl.modified)}
+              </option>
+            ))}
+          </select>
+          <span className="hint">
+            {isSummary && earlier.length === 0
+              ? `No earlier crawl of ${site} to compare with.`
+              : 'Plain words, no URL lists: what to fix first, by area, and what has changed since.'}
+          </span>
+        </label>
+      )}
     </Dialog>
   )
 }

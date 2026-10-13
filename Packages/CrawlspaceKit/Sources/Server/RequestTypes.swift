@@ -26,6 +26,10 @@ struct ReportBody: Decodable {
     var maxIssues: Int?
     var examplesPerIssue: Int?
     var format: String?
+    /// "summary" for the client summary; the full audit report otherwise.
+    var kind: String?
+    /// For the summary: an earlier crawl of the site to show progress since.
+    var baseline: String?
 }
 
 struct LighthouseBody: Decodable {

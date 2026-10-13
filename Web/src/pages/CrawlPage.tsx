@@ -9,7 +9,7 @@ import URLTable from '../components/URLTable'
 import { number, useDebounced, useEvents, useStoredState } from '../hooks'
 import { Menu, messageOf, useAction, useToast } from '../ui'
 
-type Sheet = 'config' | 'report' | 'compare' | 'clickup' | null
+type Sheet = 'config' | 'report' | 'summary' | 'compare' | 'clickup' | null
 
 export default function CrawlPage() {
   const id = useParams().id!
@@ -180,6 +180,7 @@ export default function CrawlPage() {
         </>
       )}
       <hr />
+      <button onClick={() => setSheet('summary')}>Client Summary…</button>
       <button onClick={() => setSheet('report')}>Audit Report…</button>
     </Menu>
   )
@@ -315,7 +316,8 @@ export default function CrawlPage() {
           }}
         />
       )}
-      {sheet === 'report' && <ReportDialog crawlID={id} onClose={() => setSheet(null)} />}
+      {sheet === 'report' && <ReportDialog crawlID={id} site={state.site} kind="audit" onClose={() => setSheet(null)} />}
+      {sheet === 'summary' && <ReportDialog crawlID={id} site={state.site} kind="summary" onClose={() => setSheet(null)} />}
       {sheet === 'compare' && <CompareDialog crawlID={id} site={state.site} onClose={() => setSheet(null)} />}
       {sheet === 'clickup' && <ClickUpDialog crawlID={id} onClose={() => setSheet(null)} />}
     </div>
