@@ -394,7 +394,6 @@ export function ClickUpDialog({ crawlID, onClose }: { crawlID: string; onClose: 
   const [spaceID, setSpaceID] = useState('')
   const [lists, setLists] = useState<ListChoice[] | null>(null)
   const [topics, setTopics] = useState<Topic[]>(standardTopics)
-  const [shopify, setShopify] = useState(false)
   const [targets, setTargets] = useState<Record<string, ListTarget>>(() => standardTargets(standardTopics))
   const [remembered, setRemembered] = useState<{ spaceID: string; targets: Partial<Record<string, ListTarget>> } | null>(null)
   const [severities, setSeverities] = useState<SeverityName[]>(['error', 'warning'])
@@ -423,13 +422,11 @@ export function ClickUpDialog({ crawlID, onClose }: { crawlID: string; onClose: 
       run(() => api.get<SpaceChoice[]>('/api/clickup/spaces')),
       api.get<{
         site: string
-        shopify: boolean
         topics: Topic[]
         destination?: { spaceID: string; spaceName: string; targets: Partial<Record<string, ListTarget>> }
       }>(`${crawlPath(crawlID)}/clickup/destination`),
     ])
     setSite(saved.site)
-    setShopify(saved.shopify)
     setTopics(saved.topics)
     setTargets(standardTargets(saved.topics))
     if (!found) return
@@ -562,12 +559,11 @@ export function ClickUpDialog({ crawlID, onClose }: { crawlID: string; onClose: 
           <fieldset>
             <legend>What to file, and where</legend>
             {spaceID && lists === null && <p className="hint">Reading the lists in {space?.name}…</p>}
-            {shopify && (
-              <p className="hint">
-                A Shopify store: pages are filed by kind, each with its issues as subtasks, and issues the theme makes on most pages
-                of a kind go in one template task.
-              </p>
-            )}
+            <p className="hint">
+              ClickUp gets an overview: one task per kind of problem, such as Errors › H1: Missing, saying how many are left. The pages
+              themselves are in Fixes, where they're ticked off and checked, and each task here closes by itself once its fixes are
+              confirmed.
+            </p>
             {topics.map((topic) => {
               const target = targets[topic.id] ?? standardTarget(topic)
               const isNew = !target.listID

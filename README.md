@@ -129,7 +129,7 @@ or web page. They download through the browser.
 
 **Fixes** (on a crawl's toolbar, or beside the site on the start page) keeps a site's list of things to
 fix on this Mac, across crawls. It's started from a crawl the first time; after that every full crawl
-of the site updates it. Each fix is one change, grouped as the ClickUp export groups them: a broken
+of the site updates it. Each fix is one change: a broken
 address and every link to it, an image file, a setting, a page and its issues, and so on, each with
 what's wrong where and how to fix it.
 
@@ -137,58 +137,27 @@ Tick a fix once it's done, then **Check**: Crawlspace crawls just the pages invo
 broken address and the pages linking to it, or ten pages that carry a change made in the theme — and
 confirms each ticked fix, or marks it *still there*. It takes seconds rather than a full crawl, and
 each check is kept in Recent Crawls as "<site> fix check <date>". A full crawl confirms anything else
-that has gone, under the same rules as closing ClickUp tasks: a page's issues once the page has been
+that has gone: a page's issues once the page has been
 crawled again, anything else only from a crawl of the whole site. Speed problems are confirmed by the
-next speed check, not by a quick one. Anything that comes back is reopened.
+next speed check, not by a quick one. Anything that comes back is reopened. ClickUp holds an overview that follows this list (below).
 
 ## Filing issues into ClickUp
 
-**Export ▸ Issues to ClickUp…** (⇧⌘K) turns what the crawl found into work: **one task per thing
-to fix**, not one per page or one per issue type. Most of what a crawl reports is the same few fixes
-seen from every page: a broken link in the footer, a missing security header, a logo without alt
-text. Filed page by page, each of those is thousands of tasks for one edit. So each kind of fix has
-a list of its own, in a Crawlspace folder in the space you choose:
+**Export ▸ Issues to ClickUp…** (⇧⌘K) puts an **overview** into ClickUp: one task per kind of
+problem, in an Errors, Warnings or Notices list in a Crawlspace folder of the space you choose —
+*Errors › Page Titles: Missing*, *Warnings › Page Titles: Too Long*. Each says how many are left to
+fix, how many are done and waiting for a check, and how many are confirmed fixed; what the problem
+is and how to fix it; and where the detail is. The detail — every page, image and link, with what's
+wrong where — is in [Fixes](#fixes), where it's ticked off and checked. A pair measured two ways (a
+title over 60 characters and 561 pixels), and a broken address with the links to it, count as one.
+Priority comes from the severity: errors Urgent, warnings High, notices Low.
 
-| List | One task per |
-|---|---|
-| **Links** | URL that is broken, redirects or couldn't be checked, with every page linking to it. The 404 and the links to it are one fix, so they are one task. Product cards that link through a collection (`/collections/…/products/…`, redirected to `/products/…`) are one task for the whole shop, since it's one snippet. Plus a task per link in the theme with generic text or nofollow, and one per page for the rest |
-| **Images** | image file, with every page showing it and what's wrong with it (alt text, size, dimensions). One file served at several sizes or versions (`logo.png?width=600`, `?ver=3`) is one task; an image a script serves (`image.php?id=12`) keeps its query, since that's what tells images apart |
-| **Site settings** | setting: a security header, a sitemap problem, HTTP links on an HTTPS site |
-| **Duplicates** | group of pages sharing a title, description, H1 or their content |
-| **Speed** | template Lighthouse measured (Product, Collection…), or page without one |
-| **Products** | product page, with what its data is missing |
-| **Errors**, **Warnings**, **Notices** | page, with the rest of its issues listed in the task |
-
-**On a Shopify store** the pages are filed by kind instead of by severity, so a store can be worked
-through page by page: **Products**, **Collections**, **Pages**, **Blog
-posts** and **Other pages** (home, cart, search, policies), beside Links, Images, Site settings and
-Duplicates. Each page is one task with its issues, at every severity chosen, as subtasks, each with
-what's wrong there and how to fix it, and the page's priority taken from its worst. An issue the theme
-makes (a missing H1, missing product schema, a speed problem Lighthouse measured…) that's on at
-least 80% of a template's pages, and ten or more, is one **template task** instead (*Product
-template*), with the issue as a subtask listing every page, and it's left off the pages themselves.
-A paginated collection or blog is one task: its later pages (`?page=2` and on) are built the same
-way as the first, so they're filed with it, each subtask saying which pages have the issue, and
-they're left out of duplicate groups. Collection copies of products (`/collections/…/products/…`) aren't filed page by page: they're
-counted in the product-card task and go when it's fixed. Lists from an earlier Shopify export by severity
-(Errors, Warnings, Notices) are no longer updated: archive them after the first export.
-
-One problem measured two ways is one item: a title over 60 characters and over 561 pixels is one
-*Page Titles: Too Long* with both measurements and one fix, and the same goes for a meta description
-over 155 characters and 985 pixels, and a page that's both noindex and nofollow. On a site filed by
-severity the pair goes into the list for the worse of the two, not one into each.
-
-A link counts as part of the theme when it's on ten or more pages, or on several in the navigation,
-header, footer or sidebar; its task says so (*Start here: 312 of these 340 pages carry it in the
-footer*). Each task lists what's wrong, where, and how to fix it, with a table of the pages it
-covers: the most linked-to 200, and every one in an attached CSV when there are more. Priority
-comes from the worst issue in it: errors Urgent, warnings High, notices Low.
-
+Exporting brings the site's list of fixes up to date with the crawl first, starting one if there
+isn't one. After that ClickUp follows the list by itself: when a check or a crawl confirms the last
+fix of a kind, its task closes with a comment saying which; when one comes back, the task reopens.
 Each list can go to any list in the space or a new one, and is remembered for the site. The panel
-says what it is about to do before it does it: *312 tasks across 7 lists, 4 CSV attachments. About
-4 minutes on ClickUp's smallest plan, quicker on the larger ones.* ClickUp allows 100 requests a
-minute on Free, Unlimited and Business; Crawlspace reads the workspace's own `X-RateLimit-Limit` and
-speeds up when the plan allows it.
+says what it's about to do before it does it: *18 overview tasks, one per kind of problem: 1 in
+Errors and 17 in Warnings.*
 
 Authentication is a personal API token from ClickUp ▸ Settings ▸ Apps, kept with Crawlspace's other
 secrets (see *Credentials* below). From the command line:
@@ -202,29 +171,12 @@ crawlspace clickup audit.crawlspace --space 90120001 --severities error,warning
 ```
 
 `--space` files into the Crawlspace folder's lists, as the app does; `--list` puts everything in one
-list, and `--topics links,images` files only those. The token comes from `CLICKUP_TOKEN` or the
-saved token rather than a flag, so it stays out of shell history.
+list. The token comes from `CLICKUP_TOKEN` or the saved token rather than a flag, so it stays out of
+shell history.
 
-**Running it again after the next crawl reconciles rather than repeats.** Tasks are matched by name
-among those tagged for that site, so a second export:
-
-- files a task for a fix that has appeared, and closes one that has gone
-- rewrites a task whose details have changed, and comments when its count has moved (*8 → 2 pages
-  in …*), re-attaching the CSV
-- reopens anything that was closed and has come back
-- leaves a task that hasn't changed untouched
-
-**Clean-up after fixes.** Rescan once the work is done and export again: tasks for what's fixed are
-closed, each with a comment saying which crawl showed it. Closed, not deleted — the history stays,
-and anything that comes back is reopened. It only trusts what the rescan actually looked at: a page's
-task closes only if the page was crawled again, and any other task only if the crawl covered the
-whole site, so a rescan that was stopped early or capped by a URL limit can't mark unvisited pages
-fixed. Exporting fewer lists or severities than last time leaves the others alone. Tasks from
-before this layout (one per issue type, with subtasks) are left as they are, and the result says how
-many are still open.
-
-Nothing is matched on ids stored locally, so it works from a different Mac, and a task somebody
-renamed is simply treated as theirs and left alone.
+Tasks are matched by name among those tagged for the site, so it works from a different Mac, and an
+unchanged task isn't touched. Tasks from earlier layouts (a task per issue with subtasks for pages,
+or a task per fix) are left as they are; the result says how many are still open, worth archiving.
 
 ## Comparing two crawls
 

@@ -3,6 +3,7 @@ import CrawlCore
 import Crawler
 import Export
 import Foundation
+import Integrations
 import Lighthouse
 import Storage
 
@@ -248,11 +249,27 @@ actor CrawlSession {
             let checkFor = try? store.meta("check_for")
             let host = checkFor ?? Worklist.host(of: config)
             guard checkFor != nil || (config.mode != .list && Worklist.exists(for: host)) else { return }
+            let worklist: Worklist
             do {
-                let changes = try Worklist.open(host: host).update(from: store, isCheck: checkFor != nil)
+                worklist = try Worklist.open(host: host)
+                let changes = try worklist.update(from: store, isCheck: checkFor != nil)
                 events.publish("worklist", changes)
             } catch {
                 events.publish("error", MessageDTO(message: "Couldn't update the list of fixes: \(error.localizedDescription)"))
+                return
+            }
+            // The ClickUp overview follows, when the site has been exported there: tasks close as
+            // their fixes are confirmed, and reopen if they come back.
+            let settings = SettingsStore.load()
+            guard let destination = settings.clickUpDestinations[host] ?? settings.clickUpDestinations[MiscRoutes.site(of: config)],
+                  let token = ClickUpClient.storedToken() else { return }
+            do {
+                let options = ClickUpExportOptions(listID: "", severities: Settings.severities(settings.clickUpSeverities))
+                let (result, _) = try await ClickUpOverview.sync(worklist, destination: destination, options: options,
+                                                                 client: ClickUpClient(token: token))
+                events.publish("clickup-sync", MessageDTO(message: "ClickUp: \(result.summary)."))
+            } catch {
+                events.publish("error", MessageDTO(message: "Couldn't bring ClickUp up to date: \(error.localizedDescription)"))
             }
         }
     }
