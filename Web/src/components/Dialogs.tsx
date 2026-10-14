@@ -534,9 +534,9 @@ export function ClickUpDialog({ crawlID, onClose }: { crawlID: string; onClose: 
             <legend>What to file, and where</legend>
             {spaceID && lists === null && <p className="hint">Reading the lists in {space?.name}…</p>}
             <p className="hint">
-              ClickUp gets an overview: one task per kind of problem, such as Errors › H1: Missing, saying how many are left. The pages
-              themselves are in the crawl's Fixes, where they're marked done and checked, and each task here closes by itself once its
-              fixes are verified.
+              ClickUp gets an overview of this crawl: one task per kind of problem, such as Errors › H1: Missing, saying how many there
+              are. The pages themselves are in the crawl, where they're checked once fixed. Exporting a later crawl brings the tasks up
+              to date, and closes those for problems it no longer finds.
             </p>
             {overviewLists.map((entry) => {
               const target = targets[entry.id] ?? standardTarget(entry)

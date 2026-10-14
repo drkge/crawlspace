@@ -54,12 +54,6 @@ public enum ScheduleRunner {
                 summary += " · Lighthouse skipped: not set up yet"
             }
         }
-        // The crawl's own fixes, ready for its page.
-        if config.mode != .list {
-            try Worklist.open(for: store).update(from: store, isCheck: false)
-            let fixes = try Worklist.open(for: store).items().filter { $0.parentKey == nil }.count
-            summary += " · \(fixes.formatted()) \(fixes == 1 ? "fix" : "fixes")"
-        }
         var result = Result(packageURL: packageURL, summary: summary)
 
         if schedule.compareWithPrevious, let previous {

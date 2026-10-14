@@ -166,7 +166,6 @@ actor CrawlSession {
         events.publish("changed", ["reason": "finished"])
         publishState()
         onActivityChange()
-        if status == .completed || status == .stopped { updateWorklist() }
         // A crawl that ran to the end gets its speed measured; a stopped one is left for later.
         if status == .completed, config.lighthouseTopPages > 0 {
             try? startLighthouse(top: config.lighthouseTopPages)
@@ -242,32 +241,7 @@ actor CrawlSession {
         if update.done > 0 { events.publish("changed", ["reason": "lighthouse"]) }
     }
 
-    /// Makes this crawl's list of fixes, or, for a check, verifies the fixes of the crawl it checked.
-    private func updateWorklist() {
-        let store = store
-        let events = events
-        Task.detached(priority: .utility) {
-            guard let config = try? store.loadConfig() else { return }
-            // A crawl's fixes are its own; a check's verify the crawl it checked. A list of URLs
-            // isn't a site, so has none. ClickUp changes only when it's exported to.
-            let checkOf = try? store.meta(Worklist.checkOfMeta)
-            guard checkOf != nil || config.mode != .list else { return }
-            do {
-                let worklist = if let checkOf, let host = try? store.meta("check_for") {
-                    try Worklist.open(package: URL(filePath: checkOf), host: host)
-                } else {
-                    try Worklist.open(for: store)
-                }
-                let changes = try worklist.update(from: store, isCheck: checkOf != nil)
-                events.publish("worklist", changes)
-            } catch {
-                events.publish("error", MessageDTO(message: "Couldn't update the list of fixes: \(error.localizedDescription)"))
-            }
-        }
-    }
-
     private func lighthouseFinished(message: String) {
-        updateWorklist()
         lighthouseTask = nil
         lighthouseProgress = nil
         lighthouseMessage = message

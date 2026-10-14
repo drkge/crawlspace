@@ -125,40 +125,6 @@ actor Library {
         return try await create(config: summary.config)
     }
 
-    /// Crawls just the pages behind some of a crawl's fixes, with its settings, so they can be
-    /// verified in minutes rather than by crawling the whole site again.
-    func check(_ id: String, keys asked: [String]? = nil) async throws -> CrawlSession {
-        let package = try packageURL(for: id)
-        guard var config = CrawlStore.summary(of: package)?.config else {
-            throw ServerError.badRequest("Couldn't read the settings from \(id).")
-        }
-        let host = Worklist.host(of: config)
-        let worklist = try Worklist.open(package: package, host: host)
-        let keys = try worklist.checkKeys(asked)
-        let urls = try worklist.checkURLs(for: keys)
-        guard !urls.isEmpty else {
-            throw ServerError.badRequest(asked == nil ? "Mark the fixes you've made as done first: there's nothing to check yet."
-                                                      : "That fix can only be verified by a full crawl or a speed check.")
-        }
-        config.mode = .list
-        config.listURLs = urls
-        config.lighthouseTopPages = 0
-        try CrawlspacePaths.ensure(directory)
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd HH.mm.ss"
-        let url = directory.appending(path: "\(host) fix check \(formatter.string(from: Date()))")
-            .appendingPathExtension(CrawlStore.packageExtension)
-        let store = try CrawlStore.create(at: url, config: config)
-        try store.setMeta("check_for", host)
-        try store.setMeta(Worklist.checkOfMeta, package.path)
-        try store.setMeta(Worklist.checkKeysMeta, String(decoding: try JSONEncoder().encode(keys), as: UTF8.self))
-        try store.close()
-        let session = try session(Self.id(forLibraryPackage: url))
-        try await session.start()
-        events.publish("crawls", ["reason": "created"])
-        return session
-    }
-
     /// Moves a crawl to the Trash, as 1.x did, so a mistake can be undone in Finder.
     func trash(_ id: String) async throws {
         let url = try packageURL(for: id)

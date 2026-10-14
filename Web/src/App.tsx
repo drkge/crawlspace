@@ -5,7 +5,7 @@ import { useEvents } from './hooks'
 import CrawlPage from './pages/CrawlPage'
 import RobotsPage from './pages/RobotsPage'
 import SchedulesPage from './pages/SchedulesPage'
-import SiteFixes from './pages/SiteFixes'
+import LatestCrawl from './pages/LatestCrawl'
 import SettingsPage from './pages/SettingsPage'
 import StartPage from './pages/StartPage'
 import { useAction } from './ui'
@@ -100,7 +100,7 @@ export default function App() {
         <Route path="/" element={<StartPage about={about} />} />
         <Route path="/crawls/:id" element={<CrawlPage />} />
         <Route path="/schedules" element={<SchedulesPage />} />
-        <Route path="/sites/:host/fixes" element={<SiteFixes />} />
+        <Route path="/sites/:host/fixes" element={<LatestCrawl />} />
         <Route path="/robots" element={<RobotsPage />} />
         <Route path="/settings" element={<SettingsPage about={about} onChange={loadAbout} />} />
         <Route path="*" element={<div className="empty">Nothing here.</div>} />

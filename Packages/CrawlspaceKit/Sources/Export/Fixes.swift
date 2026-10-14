@@ -106,10 +106,6 @@ public struct Fix: Sendable, Hashable {
     /// True when it has issues only at severities left out: kept as it is, if there is
     /// one, is left as it is rather than closed.
     public var heldOpen = false
-    /// The fixes it takes over, as "group|name" keys: its addresses filed one by one, or a page's
-    /// links filed apart from the page. The worklist carries their status over rather than taking
-    /// them as fixed.
-    public var aliases: [String] = []
 
     /// What its count is of: issues on a page, otherwise pages.
     public var countsIssues: Bool {
@@ -136,8 +132,6 @@ public struct FixIssue: Sendable, Hashable {
     /// The other half of a pair measured two ways, filed with it as one: a title over 60 characters
     /// and over 561 pixels is one title to shorten.
     public var also: [String] = []
-    /// The fixes it takes over, as "group|name" keys, like a fix's.
-    public var aliases: [String] = []
 }
 
 /// Works out the fixes a crawl's issues come to, and writes each one's description.
@@ -281,7 +275,7 @@ public enum FixBuilder {
     ///
     /// A Shopify store's file is the same file at cdn.shopify.com/s/files/1/<shop>/… and at the
     /// store's own /cdn/shop/…, so both are taken as the store's.
-    static func imageFile(_ address: String, origin: String = "", sizes: Bool = true) -> String {
+    static func imageFile(_ address: String, origin: String = "") -> String {
         var file = address
         let parts = address.split(separator: "?", maxSplits: 1)
         if parts.count == 2, let path = URL(string: String(parts[0]))?.pathExtension.lowercased(), imageExtensions.contains(path) {
@@ -289,7 +283,7 @@ public enum FixBuilder {
         }
         file = shopifyFile(file).map { origin + $0 } ?? file
         // Shopify serves a file resized at logo_480x480.png, logo_large.png and the like.
-        if sizes, file.contains("/cdn/shop/") || file.contains("cdn.shopify.com/") {
+        if file.contains("/cdn/shop/") || file.contains("cdn.shopify.com/") {
             file = file.replacing(shopifySize, with: "")
         }
         return file
@@ -489,8 +483,7 @@ public enum FixBuilder {
                 }
                 units.append(Fix(group: .links, kind: .target(first.id), name: "\(first.prefix): \(shown(first.id))",
                                  severity: worst(Array(all)), codes: sorted(Array(all)), pages: try byInlinks(linkers),
-                                 members: ordered.count > 1 ? ordered.map(\.id) : [],
-                                 aliases: ordered.filter { $0.id != first.id }.map { "links|\($0.prefix): \(shown($0.id))" }))
+                                 members: ordered.count > 1 ? ordered.map(\.id) : []))
             }
             for code in linkSourceCodes { claimed.insert(code) }
 
@@ -566,14 +559,10 @@ public enum FixBuilder {
                     counts.merge(found.counts) { $0.union($1) }
                 }
                 let first = ordered[0]
-                let name = IssueEvidenceBuilder.shorten(file, site: origin)
-                // A resized copy was a fix of its own before it was known to be the file.
-                let earlier = Set(ordered.map { IssueEvidenceBuilder.shorten(imageFile(urls[$0].url, origin: origin, sizes: false), site: origin) })
-                    .filter { $0 != name }
-                units.append(Fix(group: .images, kind: .image(first), name: name,
+                units.append(Fix(group: .images, kind: .image(first), name: IssueEvidenceBuilder.shorten(file, site: origin),
                                          severity: worst(Array(codes)), codes: sorted(codes),
                                          pages: try byInlinks(pages), counts: counts.mapValues(\.count),
-                                         members: ordered.count > 1 ? ordered : [], aliases: earlier.map { "images|\($0)" }))
+                                         members: ordered.count > 1 ? ordered : []))
             }
 
             // Site settings: one fix per issue.
@@ -629,20 +618,17 @@ public enum FixBuilder {
                     let pages = try byInlinks(members)
                     let first = pages.map(pageName).min() ?? ""
                     // The whole of what they share: quoted to 80 characters, two descriptions that
-                    // differ only after that would share a name. The list shows it shorter.
-                    func name(quoting length: Int) -> String {
-                        switch code {
-                        case "title_duplicate": "Duplicate title: “\(truncated(value ?? "", length))”"
-                        case "meta_description_duplicate": "Duplicate description: “\(truncated(value ?? "", length))”"
-                        case "h1_duplicate": "Duplicate H1: “\(truncated(value ?? "", length))”"
-                        case "content_exact_duplicate": "Duplicate content: \(first)"
-                        default: "Similar content: \(first)"
-                        }
+                    // differ only after that would share a name. Labels show it shorter.
+                    let shared = truncated(value ?? "", .max)
+                    let name = switch code {
+                    case "title_duplicate": "Duplicate title: “\(shared)”"
+                    case "meta_description_duplicate": "Duplicate description: “\(shared)”"
+                    case "h1_duplicate": "Duplicate H1: “\(shared)”"
+                    case "content_exact_duplicate": "Duplicate content: \(first)"
+                    default: "Similar content: \(first)"
                     }
-                    let (whole, earlier) = (name(quoting: .max), name(quoting: 80))
-                    clusters.append(Fix(group: .duplicates, kind: .cluster(code: code, value: value), name: whole,
-                                        severity: worst([code]), codes: [code], pages: pages,
-                                        aliases: earlier == whole ? [] : ["duplicates|\(earlier)"]))
+                    clusters.append(Fix(group: .duplicates, kind: .cluster(code: code, value: value), name: name,
+                                        severity: worst([code]), codes: [code], pages: pages))
                 }
             }
             // Pages that share their content, title, description and H1 are one decision — which to
@@ -656,9 +642,8 @@ public enum FixBuilder {
                                  codes: sorted(codes), pages: lead.pages,
                                  issues: ordered.map { cluster in
                                      FixIssue(name: title(cluster.codes[0]), code: cluster.codes[0], severity: cluster.severity,
-                                              pages: cluster.pages,
-                                              aliases: cluster.name == lead.name ? [] : ["duplicates|\(cluster.name)"] + cluster.aliases)
-                                 }, aliases: lead.aliases))
+                                              pages: cluster.pages)
+                                 }))
             }
 
             if shopify {
@@ -722,24 +707,17 @@ public enum FixBuilder {
                     perPage[to]?[page]?.append(pair.other)
                 }
             }
-            // A page's links were once a fix of their own, now taken over by its worst list's fix.
-            var linksFix: [Int64: FixGroup] = [:]
-            for (page, codes) in pageLinks {
-                let worstCode = codes.min { (lookup($0)?.severity ?? .notice) < (lookup($1)?.severity ?? .notice) }
-                if let severity = worstCode.flatMap(lookup)?.severity { linksFix[page] = FixGroup.pages(severity) }
-            }
             for (group, pages) in perPage {
                 for (page, codes) in pages {
                     units.append(Fix(group: group, kind: .page(page), name: pageName(page),
-                                             severity: worst(codes), codes: sorted(codes), pages: [page],
-                                             aliases: linksFix[page] == group ? ["links|Links on \(pageName(page))"] : []))
+                                             severity: worst(codes), codes: sorted(codes), pages: [page]))
                 }
             }
             }
 
-            // A name is how the worklist knows a fix from one crawl to the next, so no two in a list
-            // may share one. Should two ever be named alike — a link's text is quoted to 60
-            // characters — each is told apart by its first page, and by number if even that's shared.
+            // A name says which fix it is, so no two in a list share one. Should two ever be named
+            // alike — a link's text is quoted to 60 characters — each is told apart by its first page,
+            // and by number if even that's shared.
             for same in Dictionary(grouping: units.indices, by: { "\(units[$0].group.rawValue)|\(units[$0].name)" }).values
             where same.count > 1 {
                 for index in same {
@@ -888,11 +866,7 @@ public enum FixBuilder {
             units.append(Fix(group: group, kind: .page(entry.id), name: FixBuilder.pageName(for: entry.address, site: site),
                                      severity: severity((chosen.isEmpty ? all : chosen)[0]), codes: chosen, pages: pages,
                                      issues: Self.issues(for: chosen, pages: { codesOn[$0] ?? [] }, severity: severity),
-                                     heldOpen: chosen.isEmpty,
-                                     // Its links were once a fix of their own.
-                                     aliases: entry.members.filter { pageLinks[$0] != nil }.map {
-                                         "links|Links on \(FixBuilder.pageName(for: urls[$0].url, site: site))"
-                                     }))
+                                     heldOpen: chosen.isEmpty))
         }
         return units
     }
@@ -1278,8 +1252,8 @@ extension Array {
 // MARK: - Formatting
 
 extension FixBuilder {
-    /// What the fixes list shows for a fix: its name, shortened. The name stays as it is, since
-    /// it's how the worklist knows the fix from one crawl to the next; the label can change freely.
+    /// What reports show for a fix: its name, shortened. The name keeps everything that tells fixes
+    /// apart; the label is for reading.
     ///
     /// An image is its file name; an address elsewhere loses its https://www. and tracking, and
     /// the middle of its path when long; encoded characters (%C2%AE) are shown as themselves; and
@@ -1350,17 +1324,6 @@ extension FixBuilder {
     static func isShopifySignIn(_ address: String) -> Bool {
         let path = address.hasPrefix("/") ? address : URL(string: address)?.path() ?? ""
         return path.firstMatch(of: /^(\/[a-z]{2}(-[a-z]{2,4})?)?\/customer_authentication\//) != nil
-    }
-
-    /// Whether a name the worklist has is for something no longer filed as a fix: a tracking copy of
-    /// a page, Shopify's sign-in, or the links on a product's collection copy, which are the
-    /// product's — "/products/x?_psid=1", "Links on /products/x?_psid=1", "Redirect:
-    /// /customer_authentication/redirect", "Links on /collections/c/products/x".
-    static func isLeftOut(name: String) -> Bool {
-        let address = name.split(separator: " ").last.map(String.init) ?? name
-        guard address.hasPrefix("/") else { return false }
-        if name.hasPrefix("Links on "), EcommercePaths.product(path: address)?.collectionScoped == true { return true }
-        return isTrackingCopy(address) || isShopifySignIn(address)
     }
 
     /// Another site's address as a label: without https:// or tracking, and with the middle of a
