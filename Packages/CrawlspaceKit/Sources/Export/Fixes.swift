@@ -628,15 +628,21 @@ public enum FixBuilder {
                     guard members.count >= 2 else { continue }
                     let pages = try byInlinks(members)
                     let first = pages.map(pageName).min() ?? ""
-                    let name = switch code {
-                    case "title_duplicate": "Duplicate title: “\(truncated(value ?? "", 80))”"
-                    case "meta_description_duplicate": "Duplicate description: “\(truncated(value ?? "", 80))”"
-                    case "h1_duplicate": "Duplicate H1: “\(truncated(value ?? "", 80))”"
-                    case "content_exact_duplicate": "Duplicate content: \(first)"
-                    default: "Similar content: \(first)"
+                    // The whole of what they share: quoted to 80 characters, two descriptions that
+                    // differ only after that would share a name. The list shows it shorter.
+                    func name(quoting length: Int) -> String {
+                        switch code {
+                        case "title_duplicate": "Duplicate title: “\(truncated(value ?? "", length))”"
+                        case "meta_description_duplicate": "Duplicate description: “\(truncated(value ?? "", length))”"
+                        case "h1_duplicate": "Duplicate H1: “\(truncated(value ?? "", length))”"
+                        case "content_exact_duplicate": "Duplicate content: \(first)"
+                        default: "Similar content: \(first)"
+                        }
                     }
-                    clusters.append(Fix(group: .duplicates, kind: .cluster(code: code, value: value), name: name,
-                                        severity: worst([code]), codes: [code], pages: pages))
+                    let (whole, earlier) = (name(quoting: .max), name(quoting: 80))
+                    clusters.append(Fix(group: .duplicates, kind: .cluster(code: code, value: value), name: whole,
+                                        severity: worst([code]), codes: [code], pages: pages,
+                                        aliases: earlier == whole ? [] : ["duplicates|\(earlier)"]))
                 }
             }
             // Pages that share their content, title, description and H1 are one decision — which to
@@ -651,8 +657,8 @@ public enum FixBuilder {
                                  issues: ordered.map { cluster in
                                      FixIssue(name: title(cluster.codes[0]), code: cluster.codes[0], severity: cluster.severity,
                                               pages: cluster.pages,
-                                              aliases: cluster.name == lead.name ? [] : ["duplicates|\(cluster.name)"])
-                                 }))
+                                              aliases: cluster.name == lead.name ? [] : ["duplicates|\(cluster.name)"] + cluster.aliases)
+                                 }, aliases: lead.aliases))
             }
 
             if shopify {
@@ -729,6 +735,21 @@ public enum FixBuilder {
                                              aliases: linksFix[page] == group ? ["links|Links on \(pageName(page))"] : []))
                 }
             }
+            }
+
+            // A name is how the worklist knows a fix from one crawl to the next, so no two in a list
+            // may share one. Should two ever be named alike — a link's text is quoted to 60
+            // characters — each is told apart by its first page, and by number if even that's shared.
+            for same in Dictionary(grouping: units.indices, by: { "\(units[$0].group.rawValue)|\(units[$0].name)" }).values
+            where same.count > 1 {
+                for index in same {
+                    if let first = units[index].pages.map(pageName).min() { units[index].name += " (\(first))" }
+                }
+                func order(_ index: Int) -> String { "\(units[index].codes) \(units[index].pages.map(pageName).sorted())" }
+                for (number, index) in Dictionary(grouping: same, by: { units[$0].name }).values
+                    .filter({ $0.count > 1 }).flatMap({ $0.sorted { order($0) < order($1) }.enumerated().dropFirst() }) {
+                    units[index].name += " \(number + 1)"
+                }
             }
 
             let order = Dictionary(uniqueKeysWithValues: FixGroup.allCases.enumerated().map { ($1, $0) })
@@ -1269,10 +1290,10 @@ extension FixBuilder {
             let file = parts[0].split(separator: "/").last.map(String.init) ?? parts[0]
             return decoded(file) + (parts.count == 2 ? "?\(parts[1])" : "")
         }
-        if let match = name.wholeMatch(of: /(Duplicate (?:title|description|H1)): “(.*)”/) {
+        if let match = name.wholeMatch(of: /(Duplicate (?:title|description|H1)): “(.*)”( \(.*\))?/) {
             var quote = String(match.2)
             if quote.hasSuffix("…") { quote.removeLast() }
-            return "\(match.1): “\(truncated(quote, labelQuote))”"
+            return "\(match.1): “\(truncated(quote, labelQuote))”" + (match.3.map { decoded(String($0)) } ?? "")
         }
         // An address ends the name, if there's one in it: "Broken link: /gone", "Links on /about".
         guard let space = name.lastIndex(of: " ").map(name.index(after:)) ?? (name.hasPrefix("/") ? name.startIndex : nil) else {
