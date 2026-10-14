@@ -4,7 +4,7 @@ An SEO crawler for the Mac: point it at a site, it crawls the pages, and reports
 search engines care about — broken links, redirect chains, duplicate titles, missing canonicals,
 hreflang mistakes, slow pages and so on. Then it keeps track of fixing them: each change to make,
 marked done as it's made and verified by a quick crawl of just the pages involved, with an overview
-in ClickUp that closes itself as the fixes land.
+in ClickUp when you export one.
 
 It runs in the menu bar and you use it in your browser. Every push to `main` becomes a
 release, and every installed copy updates itself — no DMGs to hand round, and no signing.
@@ -103,8 +103,8 @@ there's no Google account to connect.
   that run themselves overnight and diff against the previous run;
 - e-commerce checks for online shops, and a Shopify profile.
 
-Since 2.0: fixes kept across crawls and verified by quick checks, change patterns, an overview in
-ClickUp that follows them, and a client summary.
+Since 2.0: fixes for each crawl, verified by quick checks, change patterns, an overview in ClickUp,
+and a client summary.
 
 ## Connections
 
@@ -134,10 +134,11 @@ or web page. They download through the browser.
 
 ## Fixes
 
-Every crawl keeps its site's list of **fixes** up to date, on this Mac and across crawls, and any crawl
-of the site shows it: the **Fixes** section at the top of the crawl's sidebar. **All fixes** gives
-an overview — how many are verified, each kind of problem with its progress — and the full list;
-below it, each kind of problem, by severity, with how many of its fixes are verified.
+Every crawl has its own list of **fixes**: the **Fixes** section at the top of its sidebar. Each crawl
+is a fresh scan — its list is what it found, all to do, with nothing carried over from an earlier
+crawl or verified against one. Comparing two crawls is for **Compare**, when you ask. **All fixes**
+gives an overview — how many are verified, each kind of problem with its progress — and the full
+list; below it, each kind of problem, by severity, with how many of its fixes are verified.
 
 A fix is one change, with every page it touches: a broken address and every link to it, an image
 file, a setting, a change to a template, a page and its issues. Selecting one shows, in the
@@ -168,12 +169,10 @@ a reason to make a pattern — a theme error counts even once — and anything e
 **Mark done, then check.** Mark a fix done once it's made, then check it: **Check This Fix** in the
 inspector, or **Check N Done** for every fix marked done in the list on screen. A check crawls just
 the pages involved — the page; a broken address and the pages linking to it; ten pages that carry a
-change made in the theme — and marks each fix **Verified**, or **Still there**. It takes seconds
-rather than a full crawl, and each check is kept in Recent Crawls as "<site> fix check <date>". A
-full crawl verifies anything else that has gone: a page's issues once the page has been crawled
-again, anything else only from a crawl of the whole site. Speed problems are verified by the next
-speed check, not a quick one. Anything that comes back is reopened. ClickUp holds an overview that
-follows this list (below).
+change made in the theme — and marks each fix in this crawl's list **Verified**, or **Still there**.
+It takes seconds rather than a full crawl, and each check is kept in Recent Crawls as "<site> fix
+check <date>"; its page shows the list it checked. Speed problems can't be checked this way: a new
+crawl measures them afresh. ClickUp holds an overview of a crawl's list when you export it (below).
 
 ## Filing issues into ClickUp
 
@@ -186,11 +185,10 @@ wrong where — is in [Fixes](#fixes), where it's marked done and checked. A pai
 title over 60 characters and 561 pixels), and a broken address with the links to it, count as one.
 Priority comes from the severity: errors Urgent, warnings High, notices Low.
 
-Exporting brings the site's list of fixes up to date with the crawl first, starting one if there
-isn't one. After that ClickUp follows the list by itself: when a check or a crawl in the app verifies
-the last fix of a kind, its task closes with a comment saying which; when one comes back, the task
-reopens. (A scheduled crawl updates the fixes; ClickUp catches up at the next check or crawl in the
-app.)
+ClickUp changes only when you export, and shows the crawl you export: a kind of problem it found is
+a task, opened again if it was closed; one whose fixes checks have all verified is closed with a
+comment saying which check; and a task for a kind that crawl didn't find is closed, "Not found by"
+that crawl. Exporting a newer crawl brings the overview up to that crawl.
 Each list can go to any list in the space or a new one, and is remembered for the site. The panel
 says what it's about to do before it does it: *18 overview tasks, one per kind of problem: 1 in
 Errors and 17 in Warnings.*
@@ -231,7 +229,7 @@ always exact.
 ## Scheduled crawls
 
 **Schedules** keeps a list of crawls that run on their own — daily, weekly, weekdays or hourly.
-Each one measures speed with Lighthouse like any other crawl, updates the site's fixes, can compare
+Each one measures speed with Lighthouse like any other crawl, has its own list of fixes, can compare
 itself with its previous run, export the internal HTML table as CSV and write a PDF report, and it posts a notification when
 it finishes.
 
@@ -249,7 +247,7 @@ crawl of a client site is best pointed at a machine that stays on.
 
 Everything Crawlspace keeps stays on your Mac, in your account:
 
-- **Where it's kept.** Crawls, each site's fixes (`Worklists/`), schedules, settings and secrets
+- **Where it's kept.** Crawls (each with its fixes), schedules, settings and secrets
   live in `~/Library/Application Support/Crawlspace`. The app makes that folder `0700` and creates
   everything in it readable by you alone, so other accounts on the same Mac can't open it.
   Passwords, cookies, custom headers and API tokens are in `secrets.json` (`0600`), never in the
@@ -348,7 +346,7 @@ Packages/CrawlspaceKit/
   Integrations            ClickUp
   Lighthouse              finding or fetching Node, Lighthouse and Chrome; running and reading reports
   Crawler                 frontier, scheduling, robots cache, sitemaps, page processing
-  Export                  fixes and change patterns, each site's worklist, CSV and Excel, the audit
+  Export                  fixes and change patterns, each crawl's worklist, CSV and Excel, the audit
                           report and client summary, the ClickUp overview
   Compare                 crawl-to-crawl diffing over an attached baseline database
   Scheduling              schedule records, launchd agents, the headless scheduled run

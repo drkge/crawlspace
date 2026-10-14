@@ -5,9 +5,9 @@ import { Severity } from '../ui'
 import { Markdown } from './Markdown'
 
 /**
- * A site's fixes, in the crawl page: a section of the sidebar, a view in the main pane, and the
- * inspector for one fix. The list is the site's, kept across crawls; every crawl brings it up to
- * date, and a check — a crawl of just the pages involved — verifies fixes marked done.
+ * A crawl's fixes, in its page: a section of the sidebar, a view in the main pane, and the
+ * inspector for one fix. Each crawl has its own list and starts fresh; a check — a crawl of just
+ * the pages involved — verifies fixes marked done. Comparing crawls is for Compare.
  */
 
 export type FixStatus = 'open' | 'done' | 'verified' | 'reopened'
@@ -44,6 +44,8 @@ export interface FixKind {
 
 export interface FixList {
   host: string
+  /** Where its fixes are marked, checked and read: the crawl's own, or the crawl a check checked. */
+  base: string
   items: FixItem[]
   kinds: FixKind[]
 }
@@ -68,7 +70,6 @@ const groupNames: Record<string, string> = {
   notices: 'Notices',
 }
 
-export const fixesPath = (host: string) => `/api/sites/${encodeURIComponent(host)}/fixes`
 
 /** The fixes counted as kinds of problem count them: each issue, not the page holding several. */
 function leaves(list: FixList) {
@@ -315,7 +316,7 @@ export function FixInspector(props: {
     if (!item) return
     let current = true
     api
-      .get<{ message: string }>(`${fixesPath(props.list.host)}/details?key=${encodeURIComponent(item.key)}`)
+      .get<{ message: string }>(`${props.list.base}/details?key=${encodeURIComponent(item.key)}`)
       .then((answer) => current && setDetails(answer.message))
       .catch(() => current && setDetails(''))
     return () => {

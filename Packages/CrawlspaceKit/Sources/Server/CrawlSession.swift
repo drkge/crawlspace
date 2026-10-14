@@ -239,38 +239,26 @@ actor CrawlSession {
         if update.done > 0 { events.publish("changed", ["reason": "lighthouse"]) }
     }
 
-    /// Brings the site's list of fixes up to date with this crawl, when the site has one, or when
-    /// this crawl was a check of it.
+    /// Makes this crawl's list of fixes, or, for a check, verifies the fixes of the crawl it checked.
     private func updateWorklist() {
         let store = store
         let events = events
         Task.detached(priority: .utility) {
             guard let config = try? store.loadConfig() else { return }
-            let checkFor = try? store.meta("check_for")
-            let host = checkFor ?? Worklist.host(of: config)
-            // Every crawl of a site keeps its fixes up to date; a list of URLs isn't the site.
-            guard checkFor != nil || config.mode != .list else { return }
-            let worklist: Worklist
+            // A crawl's fixes are its own; a check's verify the crawl it checked. A list of URLs
+            // isn't a site, so has none. ClickUp changes only when it's exported to.
+            let checkOf = try? store.meta(Worklist.checkOfMeta)
+            guard checkOf != nil || config.mode != .list else { return }
             do {
-                worklist = try Worklist.open(host: host)
-                let changes = try worklist.update(from: store, isCheck: checkFor != nil)
+                let worklist = if let checkOf, let host = try? store.meta("check_for") {
+                    try Worklist.open(package: URL(filePath: checkOf), host: host)
+                } else {
+                    try Worklist.open(for: store)
+                }
+                let changes = try worklist.update(from: store, isCheck: checkOf != nil)
                 events.publish("worklist", changes)
             } catch {
                 events.publish("error", MessageDTO(message: "Couldn't update the list of fixes: \(error.localizedDescription)"))
-                return
-            }
-            // The ClickUp overview follows, when the site has been exported there: tasks close as
-            // their fixes are verified, and reopen if they come back.
-            let settings = SettingsStore.load()
-            guard let destination = settings.clickUpDestinations[host] ?? settings.clickUpDestinations[MiscRoutes.site(of: config)],
-                  let token = ClickUpClient.storedToken() else { return }
-            do {
-                let options = ClickUpExportOptions(listID: "", severities: Settings.severities(settings.clickUpSeverities))
-                let (result, _) = try await ClickUpOverview.sync(worklist, destination: destination, options: options,
-                                                                 client: ClickUpClient(token: token))
-                events.publish("clickup-sync", MessageDTO(message: "ClickUp: \(result.summary)."))
-            } catch {
-                events.publish("error", MessageDTO(message: "Couldn't bring ClickUp up to date: \(error.localizedDescription)"))
             }
         }
     }

@@ -59,6 +59,8 @@ struct PasswordBody: Decodable {
 
 struct FixListDTO: Encodable, Sendable {
     var host: String
+    /// Where its fixes are marked, checked and read: the crawl's, or for a check, the crawl it checked.
+    var base: String
     var items: [Worklist.Item]
     var kinds: [ClickUpOverview.Kind]
 }

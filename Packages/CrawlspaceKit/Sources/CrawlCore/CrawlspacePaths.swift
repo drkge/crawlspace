@@ -30,8 +30,6 @@ public enum CrawlspacePaths {
 
     public static var crawls: URL { support.appending(path: "Crawls", directoryHint: .isDirectory) }
     public static var schedules: URL { support.appending(path: "Schedules", directoryHint: .isDirectory) }
-    /// Each site's list of fixes, kept across crawls.
-    public static var worklists: URL { support.appending(path: "Worklists", directoryHint: .isDirectory) }
     public static var toolchain: URL { support.appending(path: "Toolchain", directoryHint: .isDirectory) }
     public static var secrets: URL { support.appending(path: "secrets.json") }
     public static var settings: URL { support.appending(path: "settings.json") }
