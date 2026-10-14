@@ -2,9 +2,9 @@
 
 An SEO crawler for the Mac: point it at a site, it crawls the pages, and reports the problems
 search engines care about — broken links, redirect chains, duplicate titles, missing canonicals,
-hreflang mistakes, slow pages and so on. Then it keeps track of fixing them: each change to make,
-marked done as it's made and verified by a quick crawl of just the pages involved, with an overview
-in ClickUp when you export one.
+hreflang mistakes, slow pages and so on. Then it helps fix them: each change to make, in reports for
+you and for a client, pages checked again in place once they're fixed, and an overview in ClickUp
+when you export one.
 
 It runs in the menu bar and you use it in your browser. Every push to `main` becomes a
 release, and every installed copy updates itself — no DMGs to hand round, and no signing.
@@ -103,8 +103,7 @@ there's no Google account to connect.
   that run themselves overnight and diff against the previous run;
 - e-commerce checks for online shops, and a Shopify profile.
 
-Since 2.0: fixes for each crawl, verified by quick checks, change patterns, an overview in ClickUp,
-and a client summary.
+Since 2.0: pages checked in place, change patterns, an overview in ClickUp, and a client summary.
 
 ## Connections
 
@@ -145,24 +144,19 @@ cross-page issues out again. What's resolved leaves the crawl: the page, the lis
 What isn't stays, and a message says which. It takes seconds, in the crawl you're looking at: no new
 crawl. Speed isn't measured again by a check; Run Lighthouse does that.
 
-## Fixes
+## What counts as one fix
 
-Every crawl has its own list of **fixes**: the **Fixes** section at the top of its sidebar. Each crawl
-is a fresh scan — its list is what it found, all to do, with nothing carried over from an earlier
-crawl or verified against one. Comparing two crawls is for **Compare**, when you ask. **All fixes**
-gives an overview — how many are verified, each kind of problem with its progress — and the full
-list; below it, each kind of problem, by severity, with how many of its fixes are verified.
-
-A fix is one change, with every page it touches: a broken address and every link to it, an image
-file, a setting, a change to a template, a page and its issues. Selecting one shows, in the
-inspector, what's wrong where and how to fix it, with every address in full.
+The audit report, the client summary and ClickUp count problems as **fixes**: one change, with
+every page it touches — a broken address and every link to it, an image file, a setting, a change to
+a template, a page and its issues. Each crawl is a fresh scan, counted on its own; comparing two is
+for **Compare**, when you ask.
 
 A page's issues are one fix, its own links among them; a link the theme repeats on many pages is
 one fix under Links. Pages alike in several ways — the same content, title, description and H1 —
 are one fix too, with each likeness as an issue under it, since deciding which page to keep settles
 them all.
 
-The list keeps names short: an image by its file name (one fix for the file, at whatever size or
+Names are kept short: an image by its file name (one fix for the file, at whatever size or
 address it's served, Shopify's CDN and its resized _480x480 copies included), another site's address without https:// or tracking
 and with the middle of a long path left out, and encoded characters as themselves (®, not %C2%AE).
 
@@ -179,29 +173,20 @@ still in collections, and a theme snippet writing a Liquid error into its links.
 addresses, where they're linked from, and the one thing to change. It takes three addresses sharing
 a reason to make a pattern — a theme error counts even once — and anything else keeps its own fix.
 
-**Mark done, then check.** Mark a fix done once it's made, then check it: **Check This Fix** in the
-inspector, or **Check N Done** for every fix marked done in the list on screen. A check crawls just
-the pages involved — the page; a broken address and the pages linking to it; ten pages that carry a
-change made in the theme — and marks each fix in this crawl's list **Verified**, or **Still there**.
-It takes seconds rather than a full crawl, and each check is kept in Recent Crawls as "<site> fix
-check <date>"; its page shows the list it checked. Speed problems can't be checked this way: a new
-crawl measures them afresh. ClickUp holds an overview of a crawl's list when you export it (below).
-
 ## Filing issues into ClickUp
 
 **Export ▸ Issues to ClickUp…** (⇧⌘K) puts an **overview** into ClickUp: one task per kind of
 problem, in an Errors, Warnings or Notices list in a Crawlspace folder of the space you choose —
-*Errors › Page Titles: Missing*, *Warnings › Page Titles: Too Long*. Each says how many are left to
-fix, how many are done and waiting for a check, and how many are verified fixed; what the problem
-is and how to fix it; and where the detail is. The detail — every page, image and link, with what's
-wrong where — is in [Fixes](#fixes), where it's marked done and checked. A pair measured two ways (a
-title over 60 characters and 561 pixels), and a broken address with the links to it, count as one.
-Priority comes from the severity: errors Urgent, warnings High, notices Low.
+*Errors › Page Titles: Missing*, *Warnings › Page Titles: Too Long*. Each says how many there are to
+fix, counted as [fixes](#what-counts-as-one-fix); what the problem is and how to fix it; and a link
+to its pages in the crawl in Crawlspace, where they're checked once fixed. A pair measured two ways
+(a title over 60 characters and 561 pixels), and a broken address with the links to it, count as
+one. Priority comes from the severity: errors Urgent, warnings High, notices Low.
 
 ClickUp changes only when you export, and shows the crawl you export: a kind of problem it found is
-a task, opened again if it was closed; one whose fixes checks have all verified is closed with a
-comment saying which check; and a task for a kind that crawl didn't find is closed, "Not found by"
-that crawl. Exporting a newer crawl brings the overview up to that crawl.
+a task, opened again if it was closed, and a task for a kind it didn't find is closed, "Not found
+by" that crawl. Exporting a later crawl — or the same one, once pages have been checked — brings
+the overview up to date.
 Each list can go to any list in the space or a new one, and is remembered for the site. The panel
 says what it's about to do before it does it: *18 overview tasks, one per kind of problem: 1 in
 Errors and 17 in Warnings.*
@@ -224,6 +209,7 @@ shell history.
 Tasks are matched by name among those tagged for the site, so it works from a different Mac, and an
 unchanged task isn't touched. Tasks from earlier layouts (a task per issue with subtasks for pages,
 or a task per fix) are left as they are; the result says how many are still open, worth archiving.
+Their links into Crawlspace open the site's latest crawl.
 
 ## Comparing two crawls
 
@@ -359,7 +345,7 @@ Packages/CrawlspaceKit/
   Integrations            ClickUp
   Lighthouse              finding or fetching Node, Lighthouse and Chrome; running and reading reports
   Crawler                 frontier, scheduling, robots cache, sitemaps, page processing
-  Export                  fixes and change patterns, each crawl's worklist, CSV and Excel, the audit
+  Export                  fixes and change patterns, CSV and Excel, the audit
                           report and client summary, the ClickUp overview
   Compare                 crawl-to-crawl diffing over an attached baseline database
   Scheduling              schedule records, launchd agents, the headless scheduled run

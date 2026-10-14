@@ -177,7 +177,7 @@ public enum ReportBuilder {
         func list(_ items: [String], total: Int? = nil, more noun: String, nested: Bool = false) -> String {
             let total = total ?? items.count
             let shown = options.forPrint && !nested ? items : Array(items.prefix(options.examplesPerIssue))
-            var html = "<ul class=\"examples\">\(shown.joined())</ul>"
+            let html = "<ul class=\"examples\">\(shown.joined())</ul>"
             let rest = total - shown.count
             guard rest > 0 else { return html }
             if options.forPrint { return html + "<p class=\"muted more\">…and \(rest.formatted()) more \(noun)</p>" }

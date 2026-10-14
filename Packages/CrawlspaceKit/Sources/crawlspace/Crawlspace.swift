@@ -555,9 +555,9 @@ struct ClickUpExport: AsyncParsableCommand {
         commandName: "clickup",
         abstract: "File an overview of a crawl's issues into ClickUp: one task per kind of problem.",
         discussion: """
-            Brings the site's list of fixes up to date with the crawl first; the pages themselves are \
-            in the app's Fixes. With --space, each severity goes into its own list in a Crawlspace \
-            folder, made if it isn't there. With --list, everything goes into that one list.
+            The pages themselves are in the crawl, in the app. With --space, each severity goes into \
+            its own list in a Crawlspace folder, made if it isn't there. With --list, everything goes \
+            into that one list.
             """
     )
 

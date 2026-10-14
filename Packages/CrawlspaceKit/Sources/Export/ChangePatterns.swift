@@ -136,25 +136,6 @@ public enum ChangePatterns {
         }
     }
 
-    /// What `name(of:)` calls a pattern that an earlier version named "Redirect pattern: …" or
-    /// "Broken pattern: …"; nil for any other name.
-    static func renamed(_ name: String) -> String? {
-        if let match = name.wholeMatch(of: /Redirect pattern: (.+)/) {
-            let rest = String(match.1)
-            if rest == "removed pages sent to the home page" { return "Removed pages sent to the home page" }
-            if let path = rest.wholeMatch(of: /addresses that all go to (.+)/) { return "Redirects that all go to \(path.1)" }
-            if let text = rest.wholeMatch(of: /number endings like (“.+”) removed from addresses/) { return "\(text.1) removed from addresses" }
-            return rest
-        }
-        if let match = name.wholeMatch(of: /Broken pattern: (.+)/) {
-            let rest = String(match.1)
-            if rest == "links to products by number, not handle" { return "Product links by number" }
-            if let place = rest.wholeMatch(of: /a Liquid error in (.+) written into links/) { return "Liquid error in \(place.1)" }
-            if rest == "removed products still in collections" { return "Removed products still in collections" }
-        }
-        return nil
-    }
-
     /// What happened, and the one fix for it.
     static func explanation(of kind: Kind) -> (what: String, fix: String) {
         switch kind {

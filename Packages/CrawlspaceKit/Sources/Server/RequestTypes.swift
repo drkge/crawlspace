@@ -60,24 +60,6 @@ struct PasswordBody: Decodable {
     var password: String
 }
 
-struct FixListDTO: Encodable, Sendable {
-    var host: String
-    /// Where its fixes are marked, checked and read: the crawl's, or for a check, the crawl it checked.
-    var base: String
-    var items: [Worklist.Item]
-    var kinds: [ClickUpOverview.Kind]
-}
-
-struct CheckBody: Decodable, Sendable {
-    /// The fixes to check; every one marked done when left out.
-    var keys: [String]?
-}
-
-struct DoneBody: Decodable, Sendable {
-    var keys: [String]
-    var done: Bool
-}
-
 struct ClickUpSpaceChoice: Encodable, Sendable {
     var id: String
     var name: String

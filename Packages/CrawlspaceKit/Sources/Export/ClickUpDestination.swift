@@ -3,7 +3,7 @@ import Foundation
 import Integrations
 
 /// What an overview export files, and where. The overview itself is `ClickUpOverview`; the detail it
-/// leaves out lives in the site's `Worklist`.
+/// leaves out is in the crawl.
 public struct ClickUpExportOptions: Sendable {
     /// Where everything goes without a destination: one list for all three severities.
     public var listID: String

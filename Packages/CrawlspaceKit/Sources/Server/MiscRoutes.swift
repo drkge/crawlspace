@@ -92,7 +92,6 @@ struct MiscRoutes {
         }
 
         registerClickUp(on: router)
-        registerFixes(on: router)
         registerRobots(on: router)
         registerSchedules(on: router)
 
@@ -223,63 +222,6 @@ struct MiscRoutes {
             throw ServerError.badRequest("Add your ClickUp API token in Settings first.")
         }
         return ClickUpClient(token: token)
-    }
-
-    // MARK: - Fixes
-
-    private func registerFixes(on router: Router<AppContext>) {
-        // The crawl whose fixes a crawl's page shows: its own, or for a check, the crawl it checked.
-        @Sendable func scan(_ id: String) async throws -> (id: String, package: URL, host: String, config: CrawlConfig) {
-            let store = try await library.session(id).store
-            let config = try store.loadConfig()
-            if let checked = try store.meta(Worklist.checkOfMeta), let host = try store.meta("check_for") {
-                let package = URL(filePath: checked)
-                guard let summary = CrawlStore.summary(of: package) else {
-                    throw ServerError.badRequest("The crawl this checked isn't there any more.")
-                }
-                return (Library.id(forLibraryPackage: package), package, host, summary.config)
-            }
-            return (id, store.packageURL, Worklist.host(of: config), config)
-        }
-
-        // A crawl's fixes, with where each stands and each kind's progress: made from it the first
-        // time they're asked for, for a crawl made before it kept them.
-        router.get("api/crawls/:id/fixes") { _, context in
-            let crawl = try await scan(context.parameters.string("id"))
-            let store = try await library.session(crawl.id).store
-            let list = try await background { () throws -> FixListDTO in
-                let worklist = try Worklist.open(package: crawl.package, host: crawl.host)
-                if crawl.config.mode != .list, try worklist.items().isEmpty, try store.meta("check_for") == nil {
-                    try worklist.update(from: store, isCheck: false)
-                }
-                return FixListDTO(host: crawl.host, base: "/api/crawls/\(crawl.id)/fixes", items: try worklist.items(),
-                                  kinds: try ClickUpOverview.kinds(in: worklist))
-            }
-            return JSON(list)
-        }
-
-        router.post("api/crawls/:id/fixes/done") { request, context in
-            let crawl = try await scan(context.parameters.string("id"))
-            let body = try await request.decodeJSON(DoneBody.self, context: context)
-            try await background { try Worklist.open(package: crawl.package, host: crawl.host).markDone(body.keys, body.done) }
-            return JSON(MessageDTO(message: "ok"))
-        }
-
-        router.get("api/crawls/:id/fixes/details") { request, context in
-            let crawl = try await scan(context.parameters.string("id"))
-            let key = request.uri.queryParameters.get("key") ?? ""
-            let markdown = try await background { try Worklist.open(package: crawl.package, host: crawl.host).details(for: key) }
-            return JSON(MessageDTO(message: markdown))
-        }
-
-        // Crawls just the pages behind some of a crawl's fixes — the ones asked for, or every one
-        // marked done — to verify them.
-        router.post("api/crawls/:id/fixes/check") { request, context in
-            let crawl = try await scan(context.parameters.string("id"))
-            let body = try? await request.decodeJSON(CheckBody.self, context: context)
-            let session = try await library.check(crawl.id, keys: body?.keys)
-            return JSON(["id": session.id])
-        }
     }
 
     // MARK: - Robots.txt tester
