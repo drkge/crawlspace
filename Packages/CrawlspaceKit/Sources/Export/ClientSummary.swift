@@ -8,12 +8,11 @@ import Storage
 /// The audit report counts URLs, so a broken link in the footer reads as 3,000 errors; the fixes
 /// count changes to make, which on a shop of 10,000 products is still 10,000 of something. A client
 /// wants the kinds of problem — *4,922 images are larger than they need to be* — with how many pages
-/// each touches and whether one change clears it. No URL lists, no crawl settings, no jargon: two or
-/// three pages a client reads.
+/// each touches and whether one change clears it. No URL lists, no crawl settings, no jargon. Every
+/// kind of problem is named, in a sentence: a client can't act on "and three more".
 public enum ClientSummaryBuilder {
-    /// How many problems "Start here" leads with, and how many each area names.
+    /// How many problems "Start here" leads with. Every one is named under its area too.
     static let priorities = 5
-    static let perArea = 3
 
     public static func html(store: CrawlStore, baseline: CrawlStore? = nil,
                             options: ReportOptions = ReportOptions(title: "Website Summary")) throws -> String {
@@ -179,8 +178,7 @@ public enum ClientSummaryBuilder {
         html += "</div>"
         for (title, list) in [("Fixed since then", fixed), ("New since then", new)] where !list.isEmpty {
             html += "<h3>\(title)</h3><ul class=\"plain\">"
-                + list.prefix(priorities).map { "<li>\(ReportBuilder.escape(sentence($0)))</li>" }.joined()
-                + (list.count > priorities ? "<li class=\"muted\">…and \((list.count - priorities).formatted()) more</li>" : "")
+                + list.map { "<li>\(ReportBuilder.escape(sentence($0)))</li>" }.joined()
                 + "</ul>"
         }
         let whole = try store.status() == .completed && store.crawledCount() < config.maxURLs
@@ -213,15 +211,13 @@ public enum ClientSummaryBuilder {
             let group = problems.filter { $0.area == area }
             guard !group.isEmpty else { continue }
             let pages = Set(group.flatMap(\.pages)).count
-            let named = group.prefix(perArea).map { "<li>\(ReportBuilder.escape(sentence($0)))</li>" }.joined()
-            let more = group.count > perArea
-                ? "<li class=\"muted\">…and \(group.count - perArea) more \(group.count - perArea == 1 ? "kind" : "kinds") of problem</li>" : ""
+            let named = group.map { "<li>\(ReportBuilder.escape(sentence($0)))</li>" }.joined()
             html += """
             <div class="issue area">
               <div class="issue-head"><strong>\(area.label)</strong>
               <span class="muted">\(group.count) \(group.count == 1 ? "problem" : "problems") · \(pages.formatted()) \(pages == 1 ? "page" : "pages") affected</span></div>
               <p>\(ReportBuilder.escape(area.why))</p>
-              <ul class="plain">\(named)\(more)</ul>
+              <ul class="plain">\(named)</ul>
             </div>
             """
         }
