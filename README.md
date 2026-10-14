@@ -6,8 +6,8 @@ hreflang mistakes, slow pages and so on. Then it helps fix them: each change to 
 you and for a client, pages checked again in place once they're fixed, and an overview in ClickUp
 when you export one.
 
-It runs in the menu bar and you use it in your browser. Every push to `main` becomes a
-release, and every installed copy updates itself — no DMGs to hand round, and no signing.
+It runs in the menu bar and you use it in your browser. Releases are made from `main` when asked,
+and every installed copy updates itself — no DMGs to hand round, and no signing.
 
 Built for macOS 26. Swift 6 for the crawler and a small local server, React for the interface,
 SQLite storage, Lighthouse for speed.
@@ -60,9 +60,10 @@ going** — or straight away from the banner in the page or the menu bar. The ne
 same address, so open tabs reconnect by themselves. If it doesn't answer within half a minute, the
 previous version is put back.
 
-Releases come from `.github/workflows/release.yml`: on every push to `main` it builds the app and
-the Lighthouse runtime and publishes them as release `v2.1.<run number>`. Changes to the README or
-`docs/` alone don't make a release.
+Releases come from `.github/workflows/release.yml`, run by hand — Actions ▸ Release ▸ Run workflow,
+or `gh workflow run release.yml` — so changes can be merged to `main` and released together later.
+It builds the app and the Lighthouse runtime from `main` and publishes them as release
+`v2.1.<run number>`.
 
 ## Speed reports (Lighthouse)
 
