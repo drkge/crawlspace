@@ -407,7 +407,10 @@ public final class Worklist: Sendable {
                                   pageCount: issue.pages.count, checkURLs: speed ? [] : pages, aliases: issue.aliases))
             }
         }
-        return rows
+        // Keys are unique in the list. Fixes are named so, but should two ever share a key, the first
+        // is kept rather than the whole update failing on it and leaving the list empty.
+        var seen: Set<String> = []
+        return rows.filter { seen.insert($0.key).inserted }
     }
 
     // MARK: - Details
