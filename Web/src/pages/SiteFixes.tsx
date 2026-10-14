@@ -3,8 +3,7 @@ import { useNavigate, useParams } from 'react-router'
 import { api, type CrawlListItem } from '../api'
 
 /**
- * Where the ClickUp overview links to: the site's fixes, in its latest crawl. Fixes belong to the
- * site rather than a crawl, so any crawl of it shows them; the latest is the one to work from.
+ * Where the ClickUp overview links to: the fixes of the site's latest crawl, the one to work from.
  */
 export default function SiteFixes() {
   const { host = '' } = useParams()

@@ -4,21 +4,22 @@ import Foundation
 import GRDB
 import Storage
 
-/// A site's fixes, kept on this Mac across crawls: every thing to fix the crawls found, marked done
-/// as it's made and verified by a crawl that looked again.
+/// A crawl's fixes: every thing to fix it found, marked done as it's made and verified by a check of
+/// it. Each crawl has its own, kept in its package, and starts fresh: nothing is carried over from
+/// an earlier crawl, or verified against one. Comparing two crawls is for Compare, when asked.
 ///
 /// The items are the fixes `FixBuilder` works out — a broken URL and the links to it, an image
 /// file, a page and its issues — with where each stands. The crawl page shows them, and ClickUp
-/// holds only an overview of them (`ClickUpOverview`).
+/// holds only an overview of them (`ClickUpOverview`), filed when it's exported.
 public final class Worklist: Sendable {
     public enum Status: String, Codable, Sendable, CaseIterable {
         /// Found, and not done yet.
         case open
         /// Marked done here, waiting for a check to verify it.
         case done
-        /// Gone from a crawl that looked again.
+        /// Gone when a check looked again.
         case verified
-        /// Done or verified, then found again.
+        /// Still there when a check looked again.
         case reopened
     }
 
@@ -59,19 +60,22 @@ public final class Worklist: Sendable {
 
     // MARK: - Opening
 
-    public static func fileURL(for host: String) -> URL {
-        let safe = host.lowercased().filter { $0.isLetter || $0.isNumber || $0 == "." || $0 == "-" }
-        return CrawlspacePaths.worklists.appending(path: (safe.isEmpty ? "site" : safe) + ".sqlite")
+    /// Where a crawl keeps its fixes: in its package, so they go with it.
+    public static func fileURL(in package: URL) -> URL {
+        package.appending(path: "fixes.sqlite")
     }
 
-    public static func exists(for host: String) -> Bool {
-        FileManager.default.fileExists(atPath: fileURL(for: host).path)
+    public static func exists(for store: CrawlStore) -> Bool {
+        FileManager.default.fileExists(atPath: fileURL(in: store.packageURL).path)
     }
 
-    /// A site's worklist, made if it isn't there yet.
-    public static func open(host: String) throws -> Worklist {
-        try CrawlspacePaths.ensure(CrawlspacePaths.worklists)
-        return try Worklist(host: host, url: fileURL(for: host))
+    /// A crawl's fixes, made empty if it has none yet.
+    public static func open(for store: CrawlStore) throws -> Worklist {
+        try open(package: store.packageURL, host: host(of: try store.loadConfig()))
+    }
+
+    public static func open(package: URL, host: String) throws -> Worklist {
+        try Worklist(host: host, url: fileURL(in: package))
     }
 
     init(host: String, url: URL) throws {
@@ -168,7 +172,7 @@ public final class Worklist: Sendable {
                        arguments: [newKey, key.count + 1, newKey, key])
     }
 
-    /// The site a crawl is of, as worklists are kept by.
+    /// The site a crawl is of.
     public static func host(of config: CrawlConfig) -> String {
         CrawlScope(config: config).startHost
     }
@@ -230,29 +234,25 @@ public final class Worklist: Sendable {
 
     /// The meta key a check crawl records the fixes it was for under.
     public static let checkKeysMeta = "check_keys"
+    /// The meta key a check crawl records the package of the crawl it checked under.
+    public static let checkOfMeta = "check_of"
 
     // MARK: - Updating from a crawl
 
-    /// Brings the list up to date with a crawl of the site.
+    /// Brings the list up to date: with its own crawl, or with a check of it.
     ///
-    /// A full crawl adds what's new, and verifies what has gone: a page's issues when the page was
-    /// crawled again, anything else only when
-    /// the crawl covered the whole site. A check — a crawl of just the pages behind some fixes —
-    /// adds nothing and speaks only for the fixes it was for: one it looked at in full and found
-    /// gone is verified, and one it found still there is marked so.
+    /// From its own crawl — when the crawl ends, again once speed is measured, and on export — it
+    /// takes the fixes the crawl comes to, keeping where each stands, and drops any the crawl no
+    /// longer comes to. A check — a crawl of just the pages behind some fixes — adds nothing and
+    /// speaks only for the fixes it was for: one it looked at in full and found gone is verified,
+    /// and one it found still there is marked so.
     @discardableResult
     public func update(from store: CrawlStore, isCheck: Bool) throws -> Changes {
-        let config = try store.loadConfig()
-        let site = URL(string: config.startURL)?.host() ?? config.startURL
         let crawl = store.packageURL.deletingPathExtension().lastPathComponent
         let units = try FixBuilder.units(store: store, severities: Set(IssueSeverity.allCases))
         let rows = try Self.rows(for: units, store: store)
         let found = Dictionary(rows.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
-
-        let crawled = Set(try store.rows(ids: store.rowIDs(for: URLListQuery(filter: .internalAll))).map(\.url))
-        let crawledNames = Set(crawled.map { FixBuilder.pageName(for: $0, site: site) })
-        let wholeSite = try store.status() == .completed && store.crawledCount() < config.maxURLs
-        let measured = try store.pool.read { db in try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM lighthouse_reports") ?? 0 } > 0
+        let crawled = isCheck ? Set(try store.rows(ids: store.rowIDs(for: URLListQuery(filter: .internalAll))).map(\.url)) : []
         let now = Date().timeIntervalSince1970
         var changes = Changes()
         // The fixes a check was for; one made before checks said so was for those marked done.
@@ -291,8 +291,7 @@ public final class Worklist: Sendable {
                         }
                         continue
                     }
-                    let status: Status = item.status == .verified ? .reopened : item.status
-                    if status == .reopened, item.status == .verified { changes.reopened += 1 }
+                    let status = item.status
                     try db.execute(sql: """
                         UPDATE items SET parent_key = ?, topic = ?, name = ?, severity = ?, kind = ?, status = ?, last_seen = ?,
                           last_seen_path = ?, page_count = ?, check_urls = ?, sort = ?,
@@ -312,21 +311,14 @@ public final class Worklist: Sendable {
                 }
             }
 
-            // What it didn't find.
+            // What it didn't find: no longer one of its own crawl's fixes, or verified by a check.
             for item in existing.values where found[item.key] == nil && item.status != .verified {
-                let speed = item.kind.hasPrefix("lh_")
-                let fixed: Bool
-                if isCheck {
-                    fixed = checked?.contains(item.key) == true && !item.checkURLs.isEmpty && item.checkURLs.allSatisfy(crawled.contains)
-                } else if speed {
-                    // Speed is measured after the crawl, so it counts only once there are results.
-                    fixed = measured && wholeSite
-                } else if Self.isPage(item) {
-                    fixed = crawledNames.contains(item.parentKey.map(Self.name(of:)) ?? item.name)
-                } else {
-                    fixed = wholeSite
+                guard isCheck else {
+                    try db.execute(sql: "DELETE FROM items WHERE key = ?", arguments: [item.key])
+                    continue
                 }
-                guard fixed else { continue }
+                guard checked?.contains(item.key) == true, !item.checkURLs.isEmpty,
+                      item.checkURLs.allSatisfy(crawled.contains) else { continue }
                 try db.execute(sql: "UPDATE items SET status = 'verified', verified_at = ?, verified_by = ? WHERE key = ?",
                                arguments: [now, crawl, item.key])
                 changes.verified += 1
@@ -335,17 +327,6 @@ public final class Worklist: Sendable {
                            arguments: [crawl])
         }
         return changes
-    }
-
-    /// A fix that's one page, whose page being crawled again is enough to say it's gone.
-    private static func isPage(_ item: Item) -> Bool {
-        let name = item.parentKey.map(Self.name(of:)) ?? item.name
-        return name.hasPrefix("/") && !name.hasSuffix(" template")
-    }
-
-    /// The name part of a "group|name" key.
-    private static func name(of key: String) -> String {
-        key.split(separator: "|", maxSplits: 1).dropFirst().first.map(String.init) ?? key
     }
 
     // MARK: - Rows from units

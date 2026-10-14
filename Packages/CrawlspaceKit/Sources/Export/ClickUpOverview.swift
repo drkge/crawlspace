@@ -6,10 +6,11 @@ import Storage
 
 /// What goes into ClickUp: an overview, one task per kind of problem under its severity — *Errors ›
 /// H1: Multiple* — saying how many there are, how many are done, and how to fix them. The detail,
-/// every page and image and link, lives in the site's list of fixes in Crawlspace, where it's marked
-/// done and checked; a task here closes by itself once every fix of its kind is verified.
+/// every page and image and link, lives in the crawl's list of fixes in Crawlspace, where it's marked
+/// done and checked. It's filed when exported, from the crawl exported: a task closes once every fix
+/// of its kind is verified, or when that crawl didn't find its kind.
 public enum ClickUpOverview {
-    /// One kind of problem, as the overview counts it from the site's fixes.
+    /// One kind of problem, as the overview counts it from a crawl's fixes.
     public struct Kind: Sendable, Hashable, Codable {
         public var code: String
         public var title: String
@@ -25,7 +26,7 @@ public enum ClickUpOverview {
     }
 
 
-    /// The site's fixes by kind, worst first. A page or template that holds several issues counts
+    /// A crawl's fixes by kind, worst first. A page or template that holds several issues counts
     /// each of them; it's the issues that are fixed.
     public static func kinds(in worklist: Worklist) throws -> [Kind] {
         let items = try worklist.items()
@@ -86,21 +87,22 @@ public enum ClickUpOverview {
 
     // MARK: - Exporting
 
-    /// Brings the site's fixes up to date with a crawl, then files the overview.
+    /// Files the overview of a crawl's fixes, as they stand: what it found, and what checks of it
+    /// have verified. ClickUp changes only here, when asked.
     public static func export(store: CrawlStore, destination: ClickUpDestination?, options: ClickUpExportOptions,
                               client: ClickUpClient, appAddress: String = "http://localhost:7777",
                               progress: (@Sendable (String, Double) -> Void)? = nil) async throws -> (ClickUpExportResult, ClickUpFolderExport.Resolved?) {
-        let host = Worklist.host(of: try store.loadConfig())
-        let worklist = try Worklist.open(host: host)
+        let worklist = try Worklist.open(for: store)
         progress?("Updating the list of fixes…", 0)
         try worklist.update(from: store, isCheck: false)
-        return try await sync(worklist, destination: destination, options: options, client: client,
-                              appAddress: appAddress, progress: progress)
+        return try await sync(worklist, crawl: store.packageURL.deletingPathExtension().lastPathComponent,
+                              destination: destination, options: options, client: client, appAddress: appAddress, progress: progress)
     }
 
-    /// Files the overview from the site's fixes as they stand: after an export, a check, or a crawl.
-    /// Into the severity lists of a destination, or, without one, all into `options.listID`.
-    public static func sync(_ worklist: Worklist, destination: ClickUpDestination?, options: ClickUpExportOptions,
+    /// Files the overview from a crawl's fixes, into the severity lists of a destination, or,
+    /// without one, all into `options.listID`. Each kind of problem the crawl found is a task; a
+    /// task for a kind it didn't find is closed.
+    public static func sync(_ worklist: Worklist, crawl: String, destination: ClickUpDestination?, options: ClickUpExportOptions,
                             client: ClickUpClient, appAddress: String = "http://localhost:7777",
                             progress: (@Sendable (String, Double) -> Void)? = nil) async throws -> (ClickUpExportResult, ClickUpFolderExport.Resolved?) {
         let kinds = try kinds(in: worklist).filter { options.severities.contains($0.severity) }
@@ -110,6 +112,8 @@ public enum ClickUpOverview {
             progress?("Finding the lists in \(destination.spaceName)…", 0)
             let found = try await ClickUpFolderExport.resolve(destination, severities: options.severities, client: client)
             resolved = found
+            // Every list, even one with nothing in it this time: its tasks may need closing.
+            for list in found.lists.values { lists[list] = [] }
             for kind in kinds {
                 guard let list = found.lists[kind.severity] else { continue }
                 lists[list, default: []].append(kind)
@@ -122,7 +126,7 @@ public enum ClickUpOverview {
         var done = 0
         for (list, share) in lists.sorted(by: { $0.key < $1.key }) {
             let start = done
-            total.add(try await file(share, into: list, host: worklist.host, options: options, client: client,
+            total.add(try await file(share, into: list, host: worklist.host, crawl: crawl, options: options, client: client,
                                      appAddress: appAddress) { title, fraction in
                 progress?(title, (Double(start) + fraction * Double(share.count)) / Double(max(1, kinds.count)))
             })
@@ -133,7 +137,7 @@ public enum ClickUpOverview {
     }
 
     /// Files kinds into one list, reconciling with the overview tasks already there.
-    static func file(_ kinds: [Kind], into listID: String, host: String, options: ClickUpExportOptions,
+    static func file(_ kinds: [Kind], into listID: String, host: String, crawl: String, options: ClickUpExportOptions,
                      client: ClickUpClient, appAddress: String,
                      progress: (@Sendable (String, Double) -> Void)? = nil) async throws -> ClickUpExportResult {
         let siteTag = ClickUpOverview.tagSlug(host)
@@ -186,11 +190,20 @@ public enum ClickUpOverview {
                 result.tasks += 1
             }
         }
+        // A kind the crawl didn't find is gone.
+        let filed = Set(kinds.map(\.title))
+        if let closed = detail.closedStatus {
+            for (name, task) in mine where !filed.contains(name) && !task.isClosed {
+                try await client.updateTask(id: task.id, status: closed)
+                try await client.comment(taskID: task.id, text: "Not found by \(crawl).")
+                result.tasksClosed += 1
+            }
+        }
         return result
     }
 
     /// How many overview tasks an export of a crawl would come to, by severity, without touching
-    /// the site's list of fixes: for the export panel to say before it files anything.
+    /// its list of fixes: for the export panel to say before it files anything.
     public static func preview(store: CrawlStore, severities: Set<IssueSeverity>) throws -> [IssueSeverity: Int] {
         let units = try FixBuilder.units(store: store, severities: Set(IssueSeverity.allCases))
         let rows = try Worklist.rows(for: units, store: store)

@@ -26,7 +26,7 @@ const severities = [
 ] as const
 
 /**
- * Overview, the site's fixes, the page tables, every issue found by severity, custom extraction
+ * Overview, the crawl's fixes, the page tables, every issue found by severity, custom extraction
  * and the reports.
  */
 export function Sidebar(props: {

@@ -54,12 +54,11 @@ public enum ScheduleRunner {
                 summary += " · Lighthouse skipped: not set up yet"
             }
         }
-        // The site's fixes, as every crawl keeps them: what's new, and what's gone.
+        // The crawl's own fixes, ready for its page.
         if config.mode != .list {
-            let changes = try Worklist.open(host: Worklist.host(of: config)).update(from: store, isCheck: false)
-            if changes.verified > 0 || changes.added > 0 {
-                summary += " · fixes: \(changes.added.formatted()) new, \(changes.verified.formatted()) verified"
-            }
+            try Worklist.open(for: store).update(from: store, isCheck: false)
+            let fixes = try Worklist.open(for: store).items().filter { $0.parentKey == nil }.count
+            summary += " · \(fixes.formatted()) \(fixes == 1 ? "fix" : "fixes")"
         }
         var result = Result(packageURL: packageURL, summary: summary)
 

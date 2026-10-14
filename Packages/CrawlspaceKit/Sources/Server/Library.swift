@@ -125,19 +125,20 @@ actor Library {
         return try await create(config: summary.config)
     }
 
-    /// Crawls just the pages behind some of a site's fixes, with the settings of its latest crawl,
-    /// so they can be verified in minutes rather than by crawling the whole site again.
-    func check(host: String, keys asked: [String]? = nil) async throws -> CrawlSession {
-        let worklist = try Worklist.open(host: host)
+    /// Crawls just the pages behind some of a crawl's fixes, with its settings, so they can be
+    /// verified in minutes rather than by crawling the whole site again.
+    func check(_ id: String, keys asked: [String]? = nil) async throws -> CrawlSession {
+        let package = try packageURL(for: id)
+        guard var config = CrawlStore.summary(of: package)?.config else {
+            throw ServerError.badRequest("Couldn't read the settings from \(id).")
+        }
+        let host = Worklist.host(of: config)
+        let worklist = try Worklist.open(package: package, host: host)
         let keys = try worklist.checkKeys(asked)
         let urls = try worklist.checkURLs(for: keys)
         guard !urls.isEmpty else {
             throw ServerError.badRequest(asked == nil ? "Mark the fixes you've made as done first: there's nothing to check yet."
                                                       : "That fix can only be verified by a full crawl or a speed check.")
-        }
-        let latest = await list().first { $0.site == host && $0.readable && !$0.name.contains(" fix check ") }
-        guard let latest, var config = CrawlStore.summary(of: try packageURL(for: latest.id))?.config else {
-            throw ServerError.badRequest("There's no crawl of \(host) to take the settings from.")
         }
         config.mode = .list
         config.listURLs = urls
@@ -149,6 +150,7 @@ actor Library {
             .appendingPathExtension(CrawlStore.packageExtension)
         let store = try CrawlStore.create(at: url, config: config)
         try store.setMeta("check_for", host)
+        try store.setMeta(Worklist.checkOfMeta, package.path)
         try store.setMeta(Worklist.checkKeysMeta, String(decoding: try JSONEncoder().encode(keys), as: UTF8.self))
         try store.close()
         let session = try session(Self.id(forLibraryPackage: url))

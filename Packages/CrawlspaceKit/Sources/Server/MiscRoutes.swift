@@ -228,42 +228,56 @@ struct MiscRoutes {
     // MARK: - Fixes
 
     private func registerFixes(on router: Router<AppContext>) {
-        // A crawl's site's fixes, with where each stands and each kind's progress. Made from this
-        // crawl the first time, for a site crawled before fixes were kept.
-        router.get("api/crawls/:id/fixes") { _, context in
-            let store = try await library.session(context.parameters.string("id")).store
+        // The crawl whose fixes a crawl's page shows: its own, or for a check, the crawl it checked.
+        @Sendable func scan(_ id: String) async throws -> (id: String, package: URL, host: String, config: CrawlConfig) {
+            let store = try await library.session(id).store
             let config = try store.loadConfig()
-            let host = Worklist.host(of: config)
-            let isCheck = try store.meta("check_for") != nil
+            if let checked = try store.meta(Worklist.checkOfMeta), let host = try store.meta("check_for") {
+                let package = URL(filePath: checked)
+                guard let summary = CrawlStore.summary(of: package) else {
+                    throw ServerError.badRequest("The crawl this checked isn't there any more.")
+                }
+                return (Library.id(forLibraryPackage: package), package, host, summary.config)
+            }
+            return (id, store.packageURL, Worklist.host(of: config), config)
+        }
+
+        // A crawl's fixes, with where each stands and each kind's progress: made from it the first
+        // time they're asked for, for a crawl made before it kept them.
+        router.get("api/crawls/:id/fixes") { _, context in
+            let crawl = try await scan(context.parameters.string("id"))
+            let store = try await library.session(crawl.id).store
             let list = try await background { () throws -> FixListDTO in
-                let fresh = !Worklist.exists(for: host)
-                let worklist = try Worklist.open(host: host)
-                if fresh, !isCheck, config.mode != .list { try worklist.update(from: store, isCheck: false) }
-                return FixListDTO(host: host, items: try worklist.items(), kinds: try ClickUpOverview.kinds(in: worklist))
+                let worklist = try Worklist.open(package: crawl.package, host: crawl.host)
+                if crawl.config.mode != .list, try worklist.items().isEmpty, try store.meta("check_for") == nil {
+                    try worklist.update(from: store, isCheck: false)
+                }
+                return FixListDTO(host: crawl.host, base: "/api/crawls/\(crawl.id)/fixes", items: try worklist.items(),
+                                  kinds: try ClickUpOverview.kinds(in: worklist))
             }
             return JSON(list)
         }
 
-        router.post("api/sites/:host/fixes/done") { request, context in
-            let host = try context.parameters.string("host")
+        router.post("api/crawls/:id/fixes/done") { request, context in
+            let crawl = try await scan(context.parameters.string("id"))
             let body = try await request.decodeJSON(DoneBody.self, context: context)
-            try await background { try Worklist.open(host: host).markDone(body.keys, body.done) }
+            try await background { try Worklist.open(package: crawl.package, host: crawl.host).markDone(body.keys, body.done) }
             return JSON(MessageDTO(message: "ok"))
         }
 
-        router.get("api/sites/:host/fixes/details") { request, context in
-            let host = try context.parameters.string("host")
+        router.get("api/crawls/:id/fixes/details") { request, context in
+            let crawl = try await scan(context.parameters.string("id"))
             let key = request.uri.queryParameters.get("key") ?? ""
-            let markdown = try await background { try Worklist.open(host: host).details(for: key) }
+            let markdown = try await background { try Worklist.open(package: crawl.package, host: crawl.host).details(for: key) }
             return JSON(MessageDTO(message: markdown))
         }
 
-        // Crawls just the pages behind some fixes — the ones asked for, or every one marked done —
-        // to verify them.
-        router.post("api/sites/:host/fixes/check") { request, context in
-            let host = try context.parameters.string("host")
+        // Crawls just the pages behind some of a crawl's fixes — the ones asked for, or every one
+        // marked done — to verify them.
+        router.post("api/crawls/:id/fixes/check") { request, context in
+            let crawl = try await scan(context.parameters.string("id"))
             let body = try? await request.decodeJSON(CheckBody.self, context: context)
-            let session = try await library.check(host: host, keys: body?.keys)
+            let session = try await library.check(crawl.id, keys: body?.keys)
             return JSON(["id": session.id])
         }
     }

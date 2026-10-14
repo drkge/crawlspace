@@ -4,7 +4,7 @@ import { api, crawlPath, downloadFrom, type Counts, type CrawlConfig, type Crawl
 import ConfigDialog from '../components/ConfigDialog'
 import { IssueBanner, Overview, Sidebar, StatusBar } from '../components/CrawlParts'
 import { ClickUpDialog, CompareDialog, ReportDialog } from '../components/Dialogs'
-import { FixInspector, FixesPane, fixesPath, type FixList } from '../components/Fixes'
+import { FixInspector, FixesPane, type FixList } from '../components/Fixes'
 import Inspector from '../components/Inspector'
 import URLTable from '../components/URLTable'
 import { number, useDebounced, useEvents, useStoredState } from '../hooks'
@@ -121,13 +121,13 @@ export default function CrawlPage() {
 
   const markFixesDone = async (keys: string[], done: boolean) => {
     if (!fixes) return
-    await run(() => api.post(`${fixesPath(fixes.host)}/done`, { keys, done }))
+    await run(() => api.post(`${fixes.base}/done`, { keys, done }))
     loadFixes()
   }
 
   const checkFixes = async (keys?: string[]) => {
     if (!fixes) return
-    const started = await run(() => api.post<{ id: string }>(`${fixesPath(fixes.host)}/check`, keys ? { keys } : {}))
+    const started = await run(() => api.post<{ id: string }>(`${fixes.base}/check`, keys ? { keys } : {}))
     if (started) {
       setChecking(started.id)
       toast(keys?.length === 1 ? 'Checking the fix: crawling just the pages it involves.' : 'Checking the done fixes: crawling just the pages involved.')
