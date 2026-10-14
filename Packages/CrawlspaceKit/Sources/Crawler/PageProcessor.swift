@@ -28,6 +28,27 @@ struct ProcessOutcome: Sendable {
     var retryAfterSeconds: Double?
 }
 
+extension ProcessOutcome {
+    /// What a processed URL comes to as records: its links resolved to URL ids by `resolve` — nil
+    /// leaves a link out — and the redirect, canonical and hreflang targets they make.
+    func records(of id: Int64, resolve: (DiscoveredLink) -> Int64?) -> (result: CrawledURL, links: [LinkRecord], hreflang: [HreflangRecord]) {
+        var result = self.result
+        var links: [LinkRecord] = []
+        var hreflang: [HreflangRecord] = []
+        for link in self.links {
+            guard let targetID = resolve(link) else { continue }
+            links.append(LinkRecord(sourceID: id, targetID: targetID, type: link.type, flags: link.flags, text: link.text))
+            switch link.type {
+            case .redirect: result.redirectToID = targetID
+            case .canonical: result.page?.canonicalID = targetID
+            case .hreflang: hreflang.append(HreflangRecord(lang: link.text, targetID: targetID))
+            default: break
+            }
+        }
+        return (result, links, hreflang)
+    }
+}
+
 /// Fetches, parses and audits one URL. Runs concurrently on many URLs; holds no mutable state.
 struct PageProcessor: Sendable {
     let config: CrawlConfig

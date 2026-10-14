@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router'
-import { api, crawlPath, downloadFrom, type Counts, type CrawlConfig, type CrawlState, type RowList } from '../api'
+import { api, crawlPath, downloadFrom, type CheckProgress, type CheckResult, type Counts, type CrawlConfig, type CrawlState, type RowList } from '../api'
 import ConfigDialog from '../components/ConfigDialog'
 import { IssueBanner, Overview, Sidebar, StatusBar } from '../components/CrawlParts'
 import { ClickUpDialog, CompareDialog, ReportDialog } from '../components/Dialogs'
@@ -92,6 +92,9 @@ export default function CrawlPage() {
       progress: (progress) => setState((current) => (current ? { ...current, progress } : current)),
       lighthouse: (progress) =>
         setState((current) => (current ? { ...current, lighthouse: { ...current.lighthouse, running: true, progress } } : current)),
+      check: (progress: CheckProgress) =>
+        setState((current) => (current ? { ...current, check: { running: true, progress } } : current)),
+      'check-finished': (result: CheckResult) => toast(checkSummary(result)),
       changed: dataChanged,
       worklist: loadFixes,
       error: (event) => toast(event.message, true),
@@ -144,6 +147,17 @@ export default function CrawlPage() {
       toast(body.rowIds ? `Measuring ${body.rowIds.length === 1 ? 'the page' : `${body.rowIds.length} pages`} on mobile and desktop…` : `Lighthouse is measuring ${next.speedPlan}…`)
     }
   }
+
+  /** Checks pages again in place; what's resolved leaves the crawl when it finishes. */
+  const checkPages = async (ids: number[]) => {
+    if (ids.length > 500 && !window.confirm(`Check all ${number(ids.length)} pages? Each is fetched again, with what its issues point at.`)) return
+    const next = await run(() => api.post<CrawlState>(`${path}/check`, { rowIds: ids }))
+    if (next) {
+      setState(next)
+      toast(ids.length === 1 ? 'Checking the page…' : `Checking ${number(ids.length)} pages…`)
+    }
+  }
+  const checkDisabled = !state || state.isRunning || state.check.running
 
   const selectURL = async (url: string) => {
     const found = await api.get<{ id: number | null }>(`${path}/lookup?url=${encodeURIComponent(url)}`).catch(() => null)
@@ -316,6 +330,16 @@ export default function CrawlPage() {
               </strong>
               <span className="hint">{rows ? `${number(rows.ids.length)} URLs` : ''}</span>
               <span className="spacer" />
+              {rows?.issue && rows.ids.length > 0 && (
+                <button
+                  className="small"
+                  disabled={checkDisabled}
+                  title="Fetch each again, with what its issues point at: what's resolved leaves the list"
+                  onClick={() => checkPages(rows.ids)}
+                >
+                  Check all {number(rows.ids.length)}
+                </button>
+              )}
               <input type="search" placeholder="Search URL, title or H1" value={search} onChange={(event) => setSearch(event.target.value)} />
             </div>
             {rows?.issue ? <IssueBanner issue={rows.issue} count={issueCount} /> : <div />}
@@ -330,6 +354,7 @@ export default function CrawlPage() {
                 selected={selected}
                 onSelect={setSelected}
                 onRunLighthouse={(ids) => runLighthouse({ rowIds: ids })}
+                onCheck={checkPages}
               />
             ) : (
               <div className="empty">Loading…</div>
@@ -358,6 +383,8 @@ export default function CrawlPage() {
               rowID={selected}
               version={version}
               lighthouseRunning={state.lighthouse.running}
+              checkDisabled={checkDisabled}
+              onCheck={checkPages}
               onSelectURL={selectURL}
               onRunLighthouse={(ids) => runLighthouse({ rowIds: ids })}
             />
@@ -385,4 +412,15 @@ export default function CrawlPage() {
       {sheet === 'clickup' && <ClickUpDialog crawlID={id} onClose={() => setSheet(null)} />}
     </div>
   )
+}
+
+/** "Checked 7 pages: 5 issues resolved (Links: Links to Broken Internal URLs ×4, …), 9 still there." */
+function checkSummary(result: CheckResult) {
+  const list = (counts: CheckResult['resolved']) => counts.map((count) => (count.pages > 1 ? `${count.title} ×${number(count.pages)}` : count.title)).join(', ')
+  const resolved = result.resolved.reduce((total, count) => total + count.pages, 0)
+  let text = `Checked ${result.checked === 1 ? 'the page' : `${number(result.checked)} pages`}: `
+  text += resolved ? `${number(resolved)} ${resolved === 1 ? 'issue' : 'issues'} resolved (${list(result.resolved)})` : 'nothing resolved'
+  text += `, ${number(result.remaining)} still there.`
+  if (result.found.length) text += ` Newly found: ${list(result.found)}.`
+  return text
 }

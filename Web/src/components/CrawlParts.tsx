@@ -315,6 +315,11 @@ export function StatusBar({ state }: { state: CrawlState }) {
           Lighthouse {state.lighthouse.progress.done}/{state.lighthouse.progress.total}
         </span>
       )}
+      {state.check.running && state.check.progress && (
+        <span>
+          Checking {number(state.check.progress.done)} of {number(state.check.progress.total)}…
+        </span>
+      )}
       <span className="spacer" />
       {state.exporting && <span>Exporting {state.exporting}…</span>}
     </footer>

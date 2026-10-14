@@ -99,6 +99,19 @@ export interface LighthouseProgress {
   failures: number
 }
 
+export interface CheckProgress {
+  done: number
+  total: number
+}
+
+/** What checking pages found: issues resolved and newly found, by title, with how many pages. */
+export interface CheckResult {
+  checked: number
+  resolved: { title: string; pages: number }[]
+  found: { title: string; pages: number }[]
+  remaining: number
+}
+
 export interface CrawlState {
   id: string
   name: string
@@ -111,6 +124,7 @@ export interface CrawlState {
   isConfigurable: boolean
   config: CrawlConfig
   lighthouse: { running: boolean; progress?: LighthouseProgress; message?: string }
+  check: { running: boolean; progress?: CheckProgress }
   exporting?: string
   ecommerceNote?: string
   /** What a speed check measures, e.g. "one page of each Shopify template". */

@@ -324,20 +324,7 @@ public actor CrawlEngine {
         }
         attempts[item.id] = nil
 
-        var result = outcome.result
-        var links: [LinkRecord] = []
-        var hreflang: [HreflangRecord] = []
-        for link in outcome.links {
-            guard let targetID = register(link, depth: item.depth + 1) else { continue }
-            links.append(LinkRecord(sourceID: item.id, targetID: targetID, type: link.type, flags: link.flags, text: link.text))
-            switch link.type {
-            case .redirect: result.redirectToID = targetID
-            case .canonical: result.page?.canonicalID = targetID
-            case .hreflang: hreflang.append(HreflangRecord(lang: link.text, targetID: targetID))
-            default: break
-            }
-        }
-
+        let (result, links, hreflang) = outcome.records(of: item.id) { register($0, depth: item.depth + 1) }
         writer.submit(.crawled(result, issues: outcome.issues, links: links, hreflang: hreflang,
                                structuredData: outcome.structuredData, html: outcome.html,
                                renderedHTML: outcome.renderedHTML, screenshot: outcome.screenshot))
