@@ -1,4 +1,6 @@
-# Every push to main becomes a release that each installed copy picks up by itself.
+# A release, made when asked: Actions ▸ Release ▸ Run workflow, or `gh workflow run release.yml`.
+# Merging to main doesn't release, so changes can be merged and released together later. Each
+# release is picked up by every installed copy by itself.
 #
 # Tests run on the maintainer's Mac before each push (they aren't in the repository), so this
 # only builds and publishes. The release carries:
@@ -7,13 +9,6 @@
 name: Release
 
 on:
-  push:
-    branches: [main]
-    # A change to the docs alone would publish the same app again, and every copy would restart
-    # to install it.
-    paths-ignore:
-      - README.md
-      - docs/**
   workflow_dispatch:
 
 concurrency:
