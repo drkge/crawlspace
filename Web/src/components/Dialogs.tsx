@@ -21,7 +21,6 @@ interface ReportSettings {
   preparedBy: string
   notes: string
   accent: string
-  maxIssues: number
   examplesPerIssue: number
   format: 'pdf' | 'html'
 }
@@ -48,7 +47,6 @@ export function ReportDialog({
     preparedBy: '',
     notes: '',
     accent: '#2E70EB',
-    maxIssues: 25,
     examplesPerIssue: 5,
     format: 'pdf',
   })
@@ -153,12 +151,8 @@ export function ReportDialog({
         </label>
         {!isSummary && (
           <>
-            <label className="field">
-              <span>Issues to include</span>
-              <input type="number" min={5} max={80} value={settings.maxIssues} onChange={(event) => set({ maxIssues: Number(event.target.value) })} />
-            </label>
-            <label className="field">
-              <span>Examples per issue</span>
+            <label className="field" title="The HTML report shows the rest behind Show more; the PDF lists every one.">
+              <span>Fixes shown per issue</span>
               <input
                 type="number"
                 min={1}

@@ -129,8 +129,11 @@ or web page. They download through the browser.
   which fixes are one change for the whole site. Pick an earlier crawl of the site and it opens with
   what has changed since: problems fixed, problems new, and pages affected then and now. No URL
   lists and no crawl settings.
-- **Audit Report** is the full audit: every issue type with its count, description, fix and
-  example URLs, the response-code and depth charts, and how the crawl was run.
+- **Audit Report** is the full audit: every issue type found, with its description and fix, and
+  the fixes it comes to — every image missing its alt text, every broken address, every page, each
+  group of duplicates with its pages — then the response-code and depth charts, and how the crawl
+  was run. The HTML report shows the first few fixes of each issue and the rest behind **Show N
+  more**; the PDF lists them all.
 
 ## Fixes
 

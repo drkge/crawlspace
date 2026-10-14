@@ -343,13 +343,12 @@ struct Report: AsyncParsableCommand {
     @Option(name: .customLong("prepared-by"), help: "Who prepared the report.") var preparedBy: String?
     @Option(help: "Accent colour, e.g. #2F6FEB.") var accent: String = "#2F6FEB"
     @Option(help: "Logo image (PNG) to embed in the header.") var logo: String?
-    @Option(help: "How many issues to detail.") var issues: Int = 25
     @Flag(help: "A short client summary in plain words, rather than the full audit.") var summary = false
     @Option(help: "With --summary: an earlier crawl of the site, to show what has changed since.") var since: String?
 
     mutating func run() async throws {
         let store = try CrawlStore.open(at: URL(filePath: package))
-        var options = ReportOptions(title: title, accent: accent, maxIssues: issues)
+        var options = ReportOptions(title: title, accent: accent, forPrint: out.lowercased().hasSuffix(".pdf"))
         options.clientName = client ?? ""
         options.preparedBy = preparedBy ?? ""
         if let logo { options.logo = try Data(contentsOf: URL(filePath: logo)) }

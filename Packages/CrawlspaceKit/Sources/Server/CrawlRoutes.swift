@@ -206,9 +206,9 @@ struct CrawlRoutes {
             options.notes = body.notes ?? ""
             if let accent = body.accent, accent.wholeMatch(of: /#[0-9A-Fa-f]{6}/) != nil { options.accent = accent }
             options.logo = body.logo.flatMap { Data(base64Encoded: $0) }
-            options.maxIssues = min(max(body.maxIssues ?? options.maxIssues, 5), 80)
             options.examplesPerIssue = min(max(body.examplesPerIssue ?? options.examplesPerIssue, 1), 20)
             let asPDF = body.format != "html"
+            options.forPrint = asPDF
             let isSummary = body.kind == "summary"
             if isSummary, body.title?.isEmpty ?? true { options.title = "Website Summary" }
             let reportOptions = options

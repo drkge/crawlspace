@@ -23,7 +23,6 @@ struct ReportBody: Decodable {
     var accent: String?
     /// A PNG or JPEG, base64-encoded.
     var logo: String?
-    var maxIssues: Int?
     var examplesPerIssue: Int?
     var format: String?
     /// "summary" for the client summary; the full audit report otherwise.
