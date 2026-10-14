@@ -43,6 +43,36 @@ struct LighthouseStateDTO: Codable, Sendable {
     var message: String?
 }
 
+struct CheckStateDTO: Codable, Sendable {
+    var running: Bool
+    var progress: PageCheck.Progress?
+}
+
+/// What checking pages found: each issue resolved, or newly found, by its title, with how many
+/// pages; and how many are still there.
+struct CheckResultDTO: Codable, Sendable {
+    struct Count: Codable, Sendable {
+        var title: String
+        var pages: Int
+    }
+    var checked: Int
+    var resolved: [Count]
+    var found: [Count]
+    var remaining: Int
+
+    init(_ result: PageCheck.Result) {
+        func counts(_ codes: [String: Int]) -> [Count] {
+            codes.map { code, pages in
+                Count(title: IssueCatalogue.definition(for: code).map { "\($0.category.rawValue): \($0.title)" } ?? code, pages: pages)
+            }.sorted { $0.pages != $1.pages ? $0.pages > $1.pages : $0.title < $1.title }
+        }
+        checked = result.checked
+        resolved = counts(result.resolved)
+        found = counts(result.found)
+        remaining = result.remaining
+    }
+}
+
 struct CrawlStateDTO: Codable, Sendable {
     var id: String
     var name: String
@@ -56,6 +86,7 @@ struct CrawlStateDTO: Codable, Sendable {
     var isConfigurable: Bool
     var config: CrawlConfig
     var lighthouse: LighthouseStateDTO
+    var check: CheckStateDTO
     var exporting: String?
     var ecommerceNote: String?
     /// What a speed check measures: "one page of each Shopify template" or "the 25 most-linked pages".

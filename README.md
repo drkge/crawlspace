@@ -135,6 +135,16 @@ or web page. They download through the browser.
   was run. The HTML report shows the first few fixes of each issue and the rest behind **Show N
   more**; the PDF lists them all.
 
+## Checking pages
+
+Fixed something? Check it. **Check** in the inspector fetches the page again; **Check all N** at the
+top of an issue's list does every page in it; and Check in the table's right-click menu does the
+pages chosen. A check fetches each page afresh, and every address its links lead to that answered
+badly before — broken, redirecting, unreachable — or is new to the crawl, then works the crawl's
+cross-page issues out again. What's resolved leaves the crawl: the page, the list and the counts.
+What isn't stays, and a message says which. It takes seconds, in the crawl you're looking at: no new
+crawl. Speed isn't measured again by a check; Run Lighthouse does that.
+
 ## Fixes
 
 Every crawl has its own list of **fixes**: the **Fixes** section at the top of its sidebar. Each crawl

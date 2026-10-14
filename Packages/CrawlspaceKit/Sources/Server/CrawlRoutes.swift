@@ -240,6 +240,14 @@ struct CrawlRoutes {
             try await session.startLighthouse(top: body.top, rowIDs: body.rowIds ?? [])
             return JSON(await session.state())
         }
+        // Checks pages again in place: fetched afresh, with what their issues point at, and what's
+        // resolved gone from the crawl.
+        crawls.post(":id/check") { request, context in
+            let body = try await request.decodeJSON(PageCheckBody.self, context: context)
+            let session = try await session(context)
+            try await session.startCheck(rowIDs: body.rowIds)
+            return JSON(await session.state())
+        }
         crawls.get(":id/speed") { _, context in
             let store = try await session(context).store
             return JSON(try await background { try store.lighthouseMeasuredPages() })

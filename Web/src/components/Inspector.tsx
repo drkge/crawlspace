@@ -11,6 +11,9 @@ export default function Inspector(props: {
   rowID: number | null
   version: number
   lighthouseRunning: boolean
+  /** Set while pages are being checked, or the crawl is running: no checking then. */
+  checkDisabled: boolean
+  onCheck: (ids: number[]) => void
   onSelectURL: (url: string) => void
   onRunLighthouse: (ids: number[]) => void
 }) {
@@ -46,6 +49,14 @@ export default function Inspector(props: {
           <span className={`chip ${statusClass}`}>{data.statusCode ? `${data.statusCode} ${data.status}` : data.status}</span>
           {data.indexability && <span className={`chip ${data.indexable ? 'ok' : 'warn'}`}>{data.indexability}</span>}
           <span className="spacer" />
+          <button
+            className="small"
+            disabled={props.checkDisabled}
+            title="Fetch it again, with what its issues point at: what's resolved leaves the crawl"
+            onClick={() => props.onCheck([data.id])}
+          >
+            Check
+          </button>
           <a className="button small" href={data.url} target="_blank" rel="noopener noreferrer">
             Open ↗
           </a>

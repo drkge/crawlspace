@@ -106,8 +106,11 @@ public final class CrawlWriter: Sendable {
         let upsert = try db.cachedStatement(sql: upsertCrawledSQL)
         let deleteIssues = try db.cachedStatement(sql: "DELETE FROM issues WHERE url_id = ?")
         let insertIssue = try db.cachedStatement(sql: "INSERT OR IGNORE INTO issues (code, url_id) VALUES (?, ?)")
+        let deleteLinks = try db.cachedStatement(sql: "DELETE FROM links WHERE source_id = ?")
         let insertLink = try db.cachedStatement(sql: "INSERT OR IGNORE INTO links (source_id, target_id, type, flags, text) VALUES (?, ?, ?, ?, ?)")
+        let deleteHreflang = try db.cachedStatement(sql: "DELETE FROM hreflang WHERE source_id = ?")
         let insertHreflang = try db.cachedStatement(sql: "INSERT OR IGNORE INTO hreflang (source_id, lang, target_id) VALUES (?, ?, ?)")
+        let deleteStructured = try db.cachedStatement(sql: "DELETE FROM structured_data WHERE url_id = ?")
         let deleteProduct = try db.cachedStatement(sql: "DELETE FROM products WHERE url_id = ?")
         let insertProduct = try db.cachedStatement(sql: """
             INSERT INTO products (url_id, name, brand, entities, entities_no_price, entities_no_availability,
@@ -181,7 +184,11 @@ public final class CrawlWriter: Sendable {
                         try insertSearchHit.execute(arguments: [d.id, name])
                     }
                 }
+                // A URL crawled again — checked — has only what it has now: no links it dropped.
                 try deleteIssues.execute(arguments: [d.id])
+                try deleteLinks.execute(arguments: [d.id])
+                try deleteHreflang.execute(arguments: [d.id])
+                try deleteStructured.execute(arguments: [d.id])
                 for code in issues {
                     try insertIssue.execute(arguments: [code, d.id])
                 }

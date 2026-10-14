@@ -514,6 +514,41 @@ extension CrawlStore {
         }
     }
 
+    /// URLs as a worker is handed them, whatever state they're in: for checking them again.
+    public func discoveredURLs(ids: [Int64]) throws -> [DiscoveredURL] {
+        try pool.read { db in
+            var found: [DiscoveredURL] = []
+            for chunk in stride(from: 0, to: ids.count, by: 900).map({ Array(ids[$0..<min($0 + 900, ids.count)]) }) {
+                found += try Row.fetchAll(db, sql: """
+                    SELECT id, url, host, is_internal, depth, found_via, resource_type FROM urls
+                    WHERE id IN (\(chunk.map { _ in "?" }.joined(separator: ",")))
+                    """, arguments: StatementArguments(chunk))
+                    .map { row in
+                        DiscoveredURL(
+                            id: row[0], url: row[1], host: row[2], isInternal: row[3], depth: row[4], state: .queued,
+                            foundVia: FoundVia(rawValue: row[5]) ?? .link,
+                            resourceType: ResourceType(rawValue: row[6]) ?? .page
+                        )
+                    }
+            }
+            return found
+        }
+    }
+
+    /// The issue codes on each of these URLs.
+    public func issueCodes(ids: [Int64]) throws -> [Int64: Set<String>] {
+        try pool.read { db in
+            var codes: [Int64: Set<String>] = [:]
+            for chunk in stride(from: 0, to: ids.count, by: 900).map({ Array(ids[$0..<min($0 + 900, ids.count)]) }) {
+                let rows = try Row.fetchAll(db, sql: """
+                    SELECT url_id, code FROM issues WHERE url_id IN (\(chunk.map { _ in "?" }.joined(separator: ",")))
+                    """, arguments: StatementArguments(chunk))
+                for row in rows { codes[row[0], default: []].insert(row[1]) }
+            }
+            return codes
+        }
+    }
+
     /// Every known URL with its state, for rebuilding the URL index when resuming.
     public func forEachURL(_ body: (Int64, String, URLState) throws -> Void) throws {
         try pool.read { db in

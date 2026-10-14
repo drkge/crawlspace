@@ -31,6 +31,10 @@ struct ReportBody: Decodable {
     var baseline: String?
 }
 
+struct PageCheckBody: Decodable {
+    var rowIds: [Int64]
+}
+
 struct LighthouseBody: Decodable {
     var top: Int?
     var rowIds: [Int64]?

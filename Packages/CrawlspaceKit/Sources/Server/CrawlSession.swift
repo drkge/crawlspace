@@ -27,6 +27,8 @@ actor CrawlSession {
     private var lighthouseTask: Task<Void, Never>?
     private var lighthouseProgress: LighthouseBatch.Progress?
     private var lighthouseMessage: String?
+    private var checkTask: Task<Void, Never>?
+    private var checkProgress: PageCheck.Progress?
     private var exporting: String?
     private let sleepGuard = SleepGuard()
     /// Told when a crawl starts or stops, so the crawl list and the menu bar stay current.
@@ -46,7 +48,7 @@ actor CrawlSession {
     }
 
     var isRunning: Bool { [.starting, .crawling, .analysing, .stopping].contains(progress.phase) || progress.phase == .paused }
-    var isBusy: Bool { isRunning || lighthouseTask != nil }
+    var isBusy: Bool { isRunning || lighthouseTask != nil || checkTask != nil }
 
     func state() -> CrawlStateDTO {
         CrawlStateDTO(
@@ -59,6 +61,7 @@ actor CrawlSession {
             config: config,
             lighthouse: LighthouseStateDTO(running: lighthouseTask != nil, progress: lighthouseProgress,
                                            message: lighthouseMessage),
+            check: CheckStateDTO(running: checkTask != nil, progress: checkProgress),
             exporting: exporting,
             ecommerceNote: try? store.meta("ecommerce_note"),
             speedPlan: LighthousePages.describe(config)
@@ -274,6 +277,46 @@ actor CrawlSession {
         onActivityChange()
     }
 
+    // MARK: - Checking pages
+
+    /// Checks some of the crawl's URLs again, in place: what's resolved leaves the crawl.
+    func startCheck(rowIDs: [Int64]) throws {
+        guard !isRunning else { throw ServerError.conflict("Wait for the crawl to finish before checking pages.") }
+        guard checkTask == nil else { throw ServerError.conflict("Pages are already being checked.") }
+        guard !rowIDs.isEmpty else { throw ServerError.badRequest("Choose the pages to check.") }
+        let store = store
+        checkProgress = PageCheck.Progress(done: 0, total: rowIDs.count)
+        sleepGuard.begin(reason: "Crawlspace is checking pages of \(name)")
+        checkTask = Task { [weak self] in
+            let owner = self
+            do {
+                let result = try await PageCheck.run(store: store, ids: rowIDs) { update in
+                    Task { await owner?.checkUpdated(update) }
+                }
+                await owner?.checkFinished(CheckResultDTO(result))
+            } catch {
+                await owner?.checkFinished(nil, error: error.localizedDescription)
+            }
+        }
+        publishState()
+    }
+
+    private func checkUpdated(_ update: PageCheck.Progress) {
+        guard checkTask != nil else { return }
+        checkProgress = update
+        events.publish("check", update)
+    }
+
+    private func checkFinished(_ result: CheckResultDTO?, error: String? = nil) {
+        checkTask = nil
+        checkProgress = nil
+        if engine == nil, lighthouseTask == nil { sleepGuard.end() }
+        if let result { events.publish("check-finished", result) }
+        if let error { events.publish("error", MessageDTO(message: "Couldn't check the pages: \(error)")) }
+        events.publish("changed", ["reason": "checked"])
+        publishState()
+    }
+
     // MARK: - Exports
 
     /// Runs one export at a time per crawl, showing it in the status bar while it runs.
@@ -292,6 +335,7 @@ actor CrawlSession {
         runTask?.cancel()
         tickTask?.cancel()
         lighthouseTask?.cancel()
+        checkTask?.cancel()
         sleepGuard.end()
         try? store.close()
     }
