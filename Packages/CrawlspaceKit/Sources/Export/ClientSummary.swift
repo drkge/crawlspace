@@ -33,7 +33,67 @@ public enum ClientSummaryBuilder {
         }
         body += working(problems)
         body += nextSteps(problems, options: options)
+        body += try allIssues(store: store)
         return ReportBuilder.document(title: options.title, accent: options.accent, body: body, style: style)
+    }
+
+    /// Every issue the crawl found, as the app lists them, in a table after the summary: for
+    /// whoever does the work, and anyone who wants the whole picture.
+    private static func allIssues(store: CrawlStore) throws -> String {
+        let counts = try store.issueCounts()
+        let issues = IssueCatalogue.all
+            .compactMap { definition in counts[definition.code].flatMap { $0 > 0 ? (definition, $0) : nil } }
+            .sorted { ($0.0.severity, -$0.1, $0.0.title) < ($1.0.severity, -$1.1, $1.0.title) }
+        guard !issues.isEmpty else { return "" }
+        let rows = issues.map { definition, count in
+            """
+            <tr class="\(definition.severity.cssClass)"><td>\(ReportBuilder.escape("\(definition.category.rawValue): \(definition.title)"))</td>\
+            <td>\(label(definition.severity))</td><td class="num">\(count.formatted())</td></tr>
+            """
+        }.joined()
+        return """
+        <section class="all-issues"><h2>Every issue found</h2>
+        <table><thead><tr><th>Issue</th><th>Priority</th><th class="num">Pages</th></tr></thead><tbody>\(rows)</tbody></table>
+        </section>
+        """
+    }
+
+    // MARK: - The client
+
+    /// Who the site belongs to, from the crawl: the name the home page's title gives the site —
+    /// "Rosy Roo" from "Rosy Roo – Rosyroo" on rosyroo.co.uk — or nil when it doesn't spell it.
+    public static func clientName(store: CrawlStore) throws -> String? {
+        let config = try store.loadConfig()
+        let host = CrawlScope(config: config).startHost
+        let title: String? = try store.pool.read { db in
+            // The start page, or where it redirected.
+            try String.fetchOne(db, sql: """
+                SELECT COALESCE(u.title, t.title) FROM urls u LEFT JOIN urls t ON t.id = u.redirect_to_id
+                WHERE u.depth = 0 ORDER BY u.id LIMIT 1
+                """)
+        }
+        return title.flatMap { siteName(title: $0, host: host) }
+    }
+
+    /// The words of a page title that spell the site's domain: "Chimney Sheep" from "Chimney Sheep®
+    /// draught excluders…" on chimneysheep.co.uk, "Jolly Good Yarn" from "Jolly Good Yarn: Eco-Friendly…".
+    static func siteName(title: String, host: String) -> String? {
+        func letters(_ text: some StringProtocol) -> String { text.lowercased().filter { $0.isLetter || $0.isNumber } }
+        let label = host.lowercased().replacing(/^www\./, with: "").split(separator: ".").first.map(letters) ?? ""
+        guard !label.isEmpty else { return nil }
+        let segments = title.components(separatedBy: CharacterSet(charactersIn: "|–—:·•")).flatMap { $0.components(separatedBy: " - ") }
+        for segment in segments {
+            var taken: [Substring] = []
+            for word in segment.split(separator: " ") {
+                taken.append(word)
+                let spelled = letters(taken.joined())
+                if spelled == label {
+                    return taken.joined(separator: " ").filter { !"®™©".contains($0) }.trimmingCharacters(in: .punctuationCharacters)
+                }
+                if !label.hasPrefix(spelled) { break }
+            }
+        }
+        return nil
     }
 
     // MARK: - Kinds of problem
@@ -489,5 +549,14 @@ public enum ClientSummaryBuilder {
       ul.plain { margin: 6px 0 0; padding-left: 18px; }
       ul.plain li { margin: 2px 0; }
       ul.good li::marker { color: #1E7F4F; }
+      .all-issues { page-break-before: always; }
+      .all-issues table { border-collapse: collapse; width: 100%; font-size: 12px; }
+      .all-issues th, .all-issues td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); }
+      .all-issues thead { display: table-header-group; }
+      .all-issues tr { page-break-inside: avoid; }
+      .all-issues .num { text-align: right; font-variant-numeric: tabular-nums; }
+      .all-issues tr.error td:first-child { border-left: 3px solid #C0362C; }
+      .all-issues tr.warning td:first-child { border-left: 3px solid #D98A1B; }
+      .all-issues tr.notice td:first-child { border-left: 3px solid #8792A8; }
     """
 }

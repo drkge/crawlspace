@@ -197,6 +197,14 @@ struct CrawlRoutes {
             return download(data, filename: "\(name) – \(selection.title).\(format.fileExtension)", contentType: contentType)
         }
 
+        // What a client summary of the crawl will say about who it's for and by.
+        crawls.get(":id/summary") { _, context in
+            let store = try await session(context).store
+            let settings = SettingsStore.load()
+            return JSON(SummaryDefaultsDTO(clientName: Settings.clientName(store: store, settings: settings),
+                                           preparedBy: settings.reportPreparedBy, hasLogo: settings.reportLogo != nil))
+        }
+
         crawls.post(":id/export/report") { request, context in
             let body = try await request.decodeJSON(ReportBody.self, context: context)
             var options = ReportOptions()
@@ -207,14 +215,25 @@ struct CrawlRoutes {
             if let accent = body.accent, accent.wholeMatch(of: /#[0-9A-Fa-f]{6}/) != nil { options.accent = accent }
             options.logo = body.logo.flatMap { Data(base64Encoded: $0) }
             options.examplesPerIssue = min(max(body.examplesPerIssue ?? options.examplesPerIssue, 1), 20)
-            let asPDF = body.format != "html"
-            options.forPrint = asPDF
             let isSummary = body.kind == "summary"
-            if isSummary, body.title?.isEmpty ?? true { options.title = "Website Summary" }
-            let reportOptions = options
-
             let session = try await session(context)
             let store = session.store
+            // A client summary is always the same document: "Website Summary", prepared by and
+            // carrying the logo set in Settings, for the client the crawl is of, as a PDF.
+            if isSummary {
+                let settings = SettingsStore.load()
+                options.title = "Website Summary"
+                options.preparedBy = settings.reportPreparedBy
+                options.logo = settings.reportLogo.flatMap { Data(base64Encoded: $0) }
+                options.notes = ""
+                if options.clientName.trimmingCharacters(in: .whitespaces).isEmpty {
+                    options.clientName = Settings.clientName(store: store, settings: settings)
+                }
+            }
+            let asPDF = isSummary || body.format != "html"
+            options.forPrint = asPDF
+            let reportOptions = options
+
             let name = await session.name
             var baseline: CrawlStore?
             if isSummary, let id = body.baseline, !id.isEmpty {

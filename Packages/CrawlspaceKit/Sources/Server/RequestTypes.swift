@@ -15,6 +15,12 @@ struct RowDataBody: Decodable {
 
 struct LookupResult: Encodable, Sendable { var id: Int64? }
 
+struct SummaryDefaultsDTO: Encodable, Sendable {
+    var clientName: String
+    var preparedBy: String
+    var hasLogo: Bool
+}
+
 struct ReportBody: Decodable {
     var title: String?
     var clientName: String?
