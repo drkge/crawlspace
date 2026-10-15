@@ -224,12 +224,21 @@ checked once fixed. Priority comes from the severity: errors Urgent, warnings Hi
 Lighthouse and Sitemap issues are left out unless you tick them. Ticked, each goes in a list of its
 own, *Crawlspace › Lighthouse* and *Crawlspace › Sitemap*; left out, those lists aren't touched.
 
-Each export replaces the last: every task an earlier export filed for the site in those lists —
-tagged `crawlspace` and the site — is deleted (ClickUp keeps deleted tasks in its Trash for a
-while), and the crawl's issues are filed afresh. ClickUp changes only when you export.
+Each export is compared with the tasks an earlier one filed for the site in those lists, tagged
+`crawlspace` and the site, and matched by issue. Nothing is deleted, so a task keeps its status,
+assignees and comments from one crawl to the next:
+- **Still found:** the task is updated with the new count, URLs and link. Its status is left as it
+  is, unless it had been closed: then it's reopened, with a comment saying the crawl still finds it.
+- **New:** a task is added.
+- **No longer found:** the task is closed, with a comment saying which crawl didn't find it.
+
+A crawl that stopped early, or ran out of URLs, closes nothing, because an issue it didn't find may
+be on a page it never reached. Lists for groups you didn't tick aren't touched. ClickUp changes only
+when you export.
 Each list can go to any list in the space or a new one, and is remembered for the site. The panel
 says what it's about to do before it does it: *40 tasks, one per issue, as the crawl lists them: 2 in
-Errors, 14 in Warnings and 24 in Notices.*
+Errors, 14 in Warnings and 24 in Notices*, and afterwards what it did: *3 new, 30 updated, 1
+reopened and 2 closed.*
 
 Authentication is a personal API token from ClickUp ▸ Settings ▸ Apps, kept with Crawlspace's other
 secrets (see *Credentials* below). From the command line:
@@ -246,9 +255,8 @@ crawlspace clickup audit.crawlspace --space 90120001 --severities error,warning
 list. `--severities` also takes `lighthouse` and `sitemap`. The token comes from `CLICKUP_TOKEN` or the saved token rather than a flag, so it stays out of
 shell history.
 
-Tasks are found by their tags, so an export from a different Mac replaces them too, and tasks from
-earlier layouts go the same way. Other sites' tasks, and anything not filed by Crawlspace, are left
-alone.
+Tasks are found by their tags and matched by the issue they link to, so an export from a different
+Mac finds them too. Other sites' tasks, and anything not filed by Crawlspace, are left alone.
 
 ## Comparing two crawls
 

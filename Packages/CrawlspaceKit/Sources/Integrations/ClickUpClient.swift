@@ -163,6 +163,8 @@ public struct ClickUpClient: Sendable {
         public var parent: String?
         public var status: StatusHolder?
         public var description: String?
+        /// The description as it was written, links and all: asked for, as ClickUp leaves it out.
+        public var markdown_description: String?
         public var tags: [Tag]?
 
         public struct StatusHolder: Decodable, Sendable, Hashable {
@@ -193,6 +195,7 @@ public struct ClickUpClient: Sendable {
             let batch: Page = try await get("/v2/list/\(listID)/task", query: [
                 URLQueryItem(name: "subtasks", value: "true"),
                 URLQueryItem(name: "include_closed", value: "true"),
+                URLQueryItem(name: "include_markdown_description", value: "true"),
                 URLQueryItem(name: "page", value: String(page)),
             ], as: Page.self)
             // A page of nothing but tasks already seen means the server is repeating itself.
@@ -213,12 +216,6 @@ public struct ClickUpClient: Sendable {
         _ = try await send(method: "PUT", path: "/v2/task/\(id)",
                            body: try JSONEncoder().encode(Update(status: status, markdown_description: markdown)),
                            contentType: "application/json", as: Ignored.self)
-    }
-
-    /// Deletes a task, and its subtasks. ClickUp keeps it in the workspace's Trash for a while.
-    public func deleteTask(id: String) async throws {
-        struct Ignored: Decodable {}
-        _ = try await send(method: "DELETE", path: "/v2/task/\(id)", body: nil, contentType: nil, as: Ignored.self)
     }
 
     /// Notes what changed, so a task carries its own history between crawls.

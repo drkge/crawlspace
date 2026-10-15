@@ -337,7 +337,8 @@ enum ClickUpPlan {
             counts[group].map { "\($0) in \(group.label)" }
         }
         var text = "\(total) \(total == 1 ? "task" : "tasks"), one per issue, as the crawl lists them: "
-            + ListFormatter.localizedString(byJoining: lists) + ". They replace the site's tasks from an earlier export."
+            + ListFormatter.localizedString(byJoining: lists) + ". They're compared with the site's tasks from an earlier export: "
+            + "new issues are added, ones still found are updated, and ones no longer found are closed. Nothing is deleted."
         if let duration = estimate(requests: total + 2 * lists.count) {
             text += " About \(duration) on ClickUp's smallest plan."
         }
