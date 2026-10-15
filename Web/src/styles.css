@@ -387,7 +387,7 @@ label.check input {
 
 .crawl {
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto auto 1fr auto;
   height: 100%;
   min-height: 0;
 }
@@ -406,6 +406,21 @@ label.check input {
   overflow: hidden;
   text-overflow: ellipsis;
   margin-right: 8px;
+}
+.check-result {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-sunken);
+  font-size: 13px;
+}
+.check-result-lines {
+  display: grid;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
 }
 .crawl-body {
   display: grid;

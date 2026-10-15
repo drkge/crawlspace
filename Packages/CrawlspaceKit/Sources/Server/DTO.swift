@@ -52,8 +52,11 @@ struct CheckStateDTO: Codable, Sendable {
 /// pages; and how many are still there.
 struct CheckResultDTO: Codable, Sendable {
     struct Count: Codable, Sendable {
+        var code: String
         var title: String
         var pages: Int
+        /// Other URLs still with it, for an issue resolved: worth checking too.
+        var elsewhere: Int?
     }
     var checked: Int
     var resolved: [Count]
@@ -61,13 +64,14 @@ struct CheckResultDTO: Codable, Sendable {
     var remaining: Int
 
     init(_ result: PageCheck.Result) {
-        func counts(_ codes: [String: Int]) -> [Count] {
+        func counts(_ codes: [String: Int], elsewhere: [String: Int] = [:]) -> [Count] {
             codes.map { code, pages in
-                Count(title: IssueCatalogue.definition(for: code).map { "\($0.category.rawValue): \($0.title)" } ?? code, pages: pages)
+                Count(code: code, title: IssueCatalogue.definition(for: code).map { "\($0.category.rawValue): \($0.title)" } ?? code,
+                      pages: pages, elsewhere: elsewhere[code])
             }.sorted { $0.pages != $1.pages ? $0.pages > $1.pages : $0.title < $1.title }
         }
         checked = result.checked
-        resolved = counts(result.resolved)
+        resolved = counts(result.resolved, elsewhere: result.elsewhere)
         found = counts(result.found)
         remaining = result.remaining
     }

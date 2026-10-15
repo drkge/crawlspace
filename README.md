@@ -144,8 +144,12 @@ top of an issue's list does every page in it; and Check in the table's right-cli
 pages chosen. A check fetches each page afresh, and every address its links lead to that answered
 badly before — broken, redirecting, unreachable — or is new to the crawl, then works the crawl's
 cross-page issues out again. What's resolved leaves the crawl: the page, the list and the counts.
-What isn't stays, and a message says which. It takes seconds, in the crawl you're looking at: no new
-crawl. Speed isn't measured again by a check; Run Lighthouse does that.
+What isn't stays, and a strip across the top of the crawl says which. It takes seconds, in the crawl
+you're looking at: no new crawl. Speed isn't measured again by a check; Run Lighthouse does that.
+
+When an issue is fixed on a page checked but other pages still have it, the strip says so and offers
+to check those too: a fix made once in the theme — the same heading on every product page — reaches
+them all, and only fetching them again shows it. Nothing more is fetched unless asked.
 
 ## What counts as one fix
 
