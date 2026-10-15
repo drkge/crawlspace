@@ -437,6 +437,13 @@ placeholder at the sizes that are missing — 64pt among them.
   looked at in a browser; only 404s, 410s, 400s, server errors and dead hosts count as broken.
   Crawlspace won't impersonate a browser to get past them. `crawlspace analyse <package>`
   re-runs the analysis on a saved crawl, which is how an old crawl picks up changes like this.
+- **The pages of a list aren't duplicates.** A collection's `?page=2` and on, and a blog's
+  `/page/2/` and on, share the first page's heading, description and most of its text, because
+  that's how a list is built. Google treats each page of a series as a page in its own right,
+  with its own address and canonical, so later pages are left out of duplicate titles,
+  descriptions, H1s and content, and don't make their first page a duplicate either. `?page=1` is
+  still counted, since it's a copy of the first page. **Crawl ▸ Run Crawl Analysis Again** brings
+  a saved crawl up to date.
 - **Politeness.** robots.txt is respected by default and overriding it requires a confirmation.
   The crawler backs off automatically on 429 and 503 and honours `Retry-After`. The connection
   count can be changed while a crawl runs — open Configuration, change it, and the workers above the new

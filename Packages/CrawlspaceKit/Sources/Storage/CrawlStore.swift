@@ -47,6 +47,10 @@ public final class CrawlStore: Sendable {
             PRAGMA cache_size = -65536;
             PRAGMA mmap_size = 268435456;
             """)
+            // later_page(url): whether it's page 2 or on of a list, for leaving those out of duplicates.
+            db.add(function: DatabaseFunction("later_page", argumentCount: 1, pure: true) { values in
+                String.fromDatabaseValue(values[0]).flatMap(Pagination.laterPage(of:)) != nil
+            })
         }
         let path = packageURL.appending(path: databaseName).path
         let pool = try DatabasePool(path: path, configuration: configuration)

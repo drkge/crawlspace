@@ -612,8 +612,9 @@ public enum FixBuilder {
                 }
                 for (members, value) in zip(groups, values) {
                     // Collection copies are the product card's, and a list's later pages are its first
-                    // page split up: alike by design, so neither makes a duplicate.
-                    let members = members.filter { !copies.contains($0) && !(shopify && paginationBase(of: urls[$0].url) != nil) }
+                    // page split up: alike by design, so neither makes a duplicate. The analysis leaves
+                    // later pages out already; a crawl analysed before it did still lists them.
+                    let members = members.filter { !copies.contains($0) && Pagination.laterPage(of: urls[$0].url) == nil }
                     guard members.count >= 2 else { continue }
                     let pages = try byInlinks(members)
                     let first = pages.map(pageName).min() ?? ""

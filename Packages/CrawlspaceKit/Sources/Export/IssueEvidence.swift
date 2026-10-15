@@ -484,7 +484,8 @@ public enum IssueEvidenceBuilder {
                                   site: String, fix: String) throws -> IssueEvidence {
         let value: String = page[column] ?? ""
         let others = try String.fetchAll(db, sql: """
-            SELECT url FROM urls WHERE \(column) = ? AND id != ? AND is_internal = 1 AND state = 1 ORDER BY url LIMIT ?
+            SELECT url FROM urls WHERE \(column) = ? AND id != ? AND is_internal = 1 AND state = 1 AND NOT later_page(url)
+            ORDER BY url LIMIT ?
             """, arguments: [value, urlID, limit])
         var evidence = IssueEvidence(fix: fix)
         evidence.items = [.init(text: "\(label): “\(value)”")]
