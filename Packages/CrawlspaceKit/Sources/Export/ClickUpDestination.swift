@@ -20,21 +20,33 @@ public struct ClickUpExportOptions: Sendable {
 }
 
 public struct ClickUpExportResult: Sendable, Hashable {
-    /// Tasks filed, one per issue.
-    public var tasks = 0
-    /// Tasks an earlier export had filed for the site, removed to make way.
-    public var tasksRemoved = 0
+    /// Tasks added, for issues an earlier export hadn't filed.
+    public var created = 0
+    /// Tasks for issues still found, brought up to date.
+    public var updated = 0
+    /// Closed tasks for issues found again, opened again.
+    public var reopened = 0
+    /// Tasks for issues no longer found, closed.
+    public var closed = 0
+    /// Why tasks for issues no longer found weren't closed, when they weren't.
+    public var notClosed: Set<String> = []
 
+    /// "3 new, 30 updated, 1 reopened and 2 closed".
     public var summary: String {
-        var text = tasks == 0 ? "no issues to file" : "\(tasks.formatted()) \(tasks == 1 ? "task" : "tasks"), one per issue"
-        if tasksRemoved > 0 { text += ", replacing \(tasksRemoved.formatted()) from an earlier export" }
+        let parts = [(created, "new"), (updated, "updated"), (reopened, "reopened"), (closed, "closed")]
+            .filter { $0.0 > 0 }.map { "\($0.0.formatted()) \($0.1)" }
+        var text = parts.isEmpty ? "no issues to file" : ListFormatter.localizedString(byJoining: parts)
+        if !notClosed.isEmpty { text += "; " + notClosed.sorted().joined(separator: "; ") }
         return text
     }
 
     /// Adds up the exports into each list.
     mutating func add(_ other: ClickUpExportResult) {
-        tasks += other.tasks
-        tasksRemoved += other.tasksRemoved
+        created += other.created
+        updated += other.updated
+        reopened += other.reopened
+        closed += other.closed
+        notClosed.formUnion(other.notClosed)
     }
 }
 

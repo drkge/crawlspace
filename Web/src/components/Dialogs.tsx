@@ -567,7 +567,8 @@ export function ClickUpDialog({ crawlID, onClose }: { crawlID: string; onClose: 
             {spaceID && lists === null && <p className="hint">Reading the lists in {space?.name}…</p>}
             <p className="hint">
               ClickUp gets this crawl's issues as the app lists them: one task per issue, such as Errors › H1: Missing, with its URLs.
-              Exporting replaces the site's tasks from an earlier export in these lists, so ClickUp shows this crawl and nothing older.
+              Exporting compares this crawl with the site's tasks from an earlier export in these lists: new issues are added, ones still
+              found are updated (and reopened if they'd been closed), and ones no longer found are closed. Nothing is deleted.
               Lighthouse and Sitemap issues go in lists of their own when ticked, and their lists are left alone when not.
             </p>
             {overviewLists.map((entry) => {
