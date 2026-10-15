@@ -107,8 +107,9 @@ export interface CheckProgress {
 /** What checking pages found: issues resolved and newly found, by title, with how many pages. */
 export interface CheckResult {
   checked: number
-  resolved: { title: string; pages: number }[]
-  found: { title: string; pages: number }[]
+  /** `elsewhere`: for an issue resolved, how many other URLs in the crawl still have it. */
+  resolved: { code: string; title: string; pages: number; elsewhere?: number }[]
+  found: { code: string; title: string; pages: number }[]
   remaining: number
 }
 

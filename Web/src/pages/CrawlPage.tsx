@@ -22,6 +22,8 @@ export default function CrawlPage() {
   const [error, setError] = useState<string | null>(null)
   const [counts, setCounts] = useState<Counts | null>(null)
   const [rows, setRows] = useState<RowList | null>(null)
+  /** What the last check found, until it's dismissed or another starts. */
+  const [checkResult, setCheckResult] = useState<CheckResult | null>(null)
   const [version, setVersion] = useState(0)
   const [search, setSearch] = useState('')
   const query = useDebounced(search, 250)
@@ -47,6 +49,7 @@ export default function CrawlPage() {
     setCounts(null)
     setRows(null)
     setSelected(null)
+    setCheckResult(null)
     loadState()
     loadCounts()
   }, [loadState, loadCounts])
@@ -86,7 +89,7 @@ export default function CrawlPage() {
         setState((current) => (current ? { ...current, lighthouse: { ...current.lighthouse, running: true, progress } } : current)),
       check: (progress: CheckProgress) =>
         setState((current) => (current ? { ...current, check: { running: true, progress } } : current)),
-      'check-finished': (result: CheckResult) => toast(checkSummary(result)),
+      'check-finished': (result: CheckResult) => setCheckResult(result),
       changed: dataChanged,
       error: (event) => toast(event.message, true),
     },
@@ -118,7 +121,19 @@ export default function CrawlPage() {
     const next = await run(() => api.post<CrawlState>(`${path}/check`, { rowIds: ids }))
     if (next) {
       setState(next)
+      setCheckResult(null)
       toast(ids.length === 1 ? 'Checking the page…' : `Checking ${number(ids.length)} pages…`)
+    }
+  }
+  /** Checks every page that still has an issue another check found fixed. */
+  const checkIssue = async (issue: CheckResult['resolved'][number]) => {
+    const count = issue.elsewhere ?? 0
+    if (count > 500 && !window.confirm(`Check all ${number(count)} pages with ${issue.title}? Each is fetched again.`)) return
+    const next = await run(() => api.post<CrawlState>(`${path}/check`, { issue: issue.code }))
+    if (next) {
+      setState(next)
+      setCheckResult(null)
+      toast(`Checking ${number(count)} ${count === 1 ? 'page' : 'pages'} with ${issue.title}…`)
     }
   }
   const checkDisabled = !state || state.isRunning || state.check.running
@@ -261,6 +276,33 @@ export default function CrawlPage() {
           ◧
         </button>
       </div>
+
+      {checkResult ? (
+        <div className="check-result">
+          <div className="check-result-lines">
+            <span>{checkSummary(checkResult)}</span>
+            {checkResult.resolved
+              .filter((issue) => issue.elsewhere)
+              .map((issue) => (
+                <span key={issue.code} className="row" style={{ gap: 8 }}>
+                  <span>
+                    {issue.title} was fixed{issue.pages > 1 ? ` on ${number(issue.pages)} pages` : ''}, and{' '}
+                    {number(issue.elsewhere ?? 0)} other {issue.elsewhere === 1 ? 'page still has' : 'pages still have'} it: the same fix may
+                    have reached them.
+                  </span>
+                  <button className="small" disabled={checkDisabled} onClick={() => checkIssue(issue)}>
+                    Check {issue.elsewhere === 1 ? 'It' : `Those ${number(issue.elsewhere ?? 0)}`}
+                  </button>
+                </span>
+              ))}
+          </div>
+          <button className="plain" title="Dismiss" onClick={() => setCheckResult(null)}>
+            ×
+          </button>
+        </div>
+      ) : (
+        <div />
+      )}
 
       <div className="crawl-body" style={{ gridTemplateColumns: `250px 1fr ${showInspector ? `${inspectorWidth}px` : ''}` }}>
         <Sidebar counts={counts} selection={selection} onSelect={select} />
