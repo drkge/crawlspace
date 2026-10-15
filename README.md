@@ -149,7 +149,9 @@ you're looking at: no new crawl. Speed isn't measured again by a check; Run Ligh
 
 When an issue is fixed on a page checked but other pages still have it, the strip says so and offers
 to check those too: a fix made once in the theme — the same heading on every product page — reaches
-them all, and only fetching them again shows it. Nothing more is fetched unless asked.
+them all, and only fetching them again shows it. Every kind of issue fixed gets its own offer, and
+when there are several, **Check All** fetches every page with any of them, once each. Pages just
+checked aren't offered again, and nothing more is fetched unless asked.
 
 ## What counts as one fix
 

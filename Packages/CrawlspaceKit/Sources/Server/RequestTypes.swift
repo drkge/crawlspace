@@ -38,9 +38,7 @@ struct ReportBody: Decodable {
 }
 
 struct PageCheckBody: Decodable {
-    /// The URLs to check, or, with `issue`, every URL that has that issue.
-    var rowIds: [Int64]?
-    var issue: String?
+    var rowIds: [Int64]
 }
 
 struct LighthouseBody: Decodable {
