@@ -6,9 +6,10 @@ import Storage
 
 /// Preferences that aren't secret, in `settings.json`. Secrets go through `CredentialStore`.
 public struct Settings: Codable, Sendable, Equatable {
-    /// Where each site's overview goes in ClickUp, by the site's host: a space and a list per severity.
+    /// Where each site's overview goes in ClickUp, by the site's host: a space and a list per group.
     public var clickUpDestinations: [String: ClickUpDestination] = [:]
-    public var clickUpSeverities: [String] = ["error", "warning"]
+    /// What the export files: "error", "warning", "notice", "lighthouse", "sitemap".
+    public var clickUpGroups: [String] = ["error", "warning"]
     /// Check GitHub for new versions. Off only for development copies.
     public var automaticUpdates = true
     /// Who client summaries say they were prepared by, and the logo they carry: the same on every one.
@@ -22,7 +23,9 @@ public struct Settings: Codable, Sendable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let d = Settings()
         clickUpDestinations = try c.decodeIfPresent([String: ClickUpDestination].self, forKey: .clickUpDestinations) ?? [:]
-        clickUpSeverities = try c.decodeIfPresent([String].self, forKey: .clickUpSeverities) ?? d.clickUpSeverities
+        clickUpGroups = try c.decodeIfPresent([String].self, forKey: .clickUpGroups)
+            ?? decoder.container(keyedBy: Earlier.self).decodeIfPresent([String].self, forKey: .clickUpSeverities)
+            ?? d.clickUpGroups
         automaticUpdates = try c.decodeIfPresent(Bool.self, forKey: .automaticUpdates) ?? d.automaticUpdates
         reportPreparedBy = try c.decodeIfPresent(String.self, forKey: .reportPreparedBy) ?? d.reportPreparedBy
         reportLogo = try c.decodeIfPresent(String.self, forKey: .reportLogo)
@@ -39,8 +42,11 @@ public struct Settings: Codable, Sendable, Equatable {
         return label.prefix(1).uppercased() + label.dropFirst()
     }
 
-    static func severities(_ names: [String]) -> Set<IssueSeverity> {
-        Set(IssueSeverity.allCases.filter { names.contains($0.name) })
+    /// Names saved before Lighthouse and Sitemap were groups of their own.
+    private enum Earlier: String, CodingKey { case clickUpSeverities }
+
+    static func groups(_ names: [String]) -> Set<IssueGroup> {
+        Set(IssueGroup.allCases.filter { names.contains($0.rawValue) })
     }
 }
 

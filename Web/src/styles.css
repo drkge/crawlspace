@@ -490,6 +490,12 @@ label.check input {
 .dot.notice {
   background: var(--notice);
 }
+.dot.lighthouse {
+  background: #f4801f;
+}
+.dot.sitemap {
+  background: var(--text-secondary);
+}
 .dot.running {
   background: var(--good);
   animation: pulse 1.4s infinite;
@@ -770,6 +776,9 @@ a.chip.source-chip:hover {
   padding: 10px 12px;
   display: grid;
   gap: 6px;
+}
+.issue-group {
+  margin: 8px 0 0;
 }
 .issue-card .head {
   display: flex;

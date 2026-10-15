@@ -20,7 +20,9 @@ public enum ClientSummaryBuilder {
         let overview = try store.overview()
         let started = try store.meta("started_at").flatMap { ISO8601DateFormatter().date(from: $0) }
         let site = CrawlScope(config: config).startHost
-        let problems = try kinds(store: store)
+        // The pages' problems; speed and the sitemap are summed up apart, after them.
+        let all = try kinds(store: store)
+        let problems = all.filter { !$0.group.isApart }
 
         var body = ReportBuilder.header(options: options, config: config, started: started)
         body += headline(problems, pages: overview.internalHTML, site: site)
@@ -32,30 +34,39 @@ public enum ClientSummaryBuilder {
             body += areas(problems)
         }
         body += working(problems)
+        body += apart(all.filter { $0.group.isApart })
         body += nextSteps(problems, options: options)
         body += try allIssues(store: store)
         return ReportBuilder.document(title: options.title, accent: options.accent, body: body, style: style)
     }
 
     /// Every issue the crawl found, as the app lists them, in a table after the summary: for
-    /// whoever does the work, and anyone who wants the whole picture.
+    /// whoever does the work, and anyone who wants the whole picture. Speed and the sitemap get
+    /// tables of their own, as the app keeps them apart.
     private static func allIssues(store: CrawlStore) throws -> String {
         let counts = try store.issueCounts()
         let issues = IssueCatalogue.all
             .compactMap { definition in counts[definition.code].flatMap { $0 > 0 ? (definition, $0) : nil } }
             .sorted { ($0.0.severity, -$0.1, $0.0.title) < ($1.0.severity, -$1.1, $1.0.title) }
-        guard !issues.isEmpty else { return "" }
-        let rows = issues.map { definition, count in
+        var html = ""
+        for (title, chosen) in [
+            ("Every issue found", issues.filter { !$0.0.group.isApart }),
+            ("Speed (Lighthouse)", issues.filter { $0.0.group == .lighthouse }),
+            ("Sitemap", issues.filter { $0.0.group == .sitemap }),
+        ] where !chosen.isEmpty {
+            let rows = chosen.map { definition, count in
+                """
+                <tr class="\(definition.severity.cssClass)"><td>\(ReportBuilder.escape("\(definition.category.rawValue): \(definition.title)"))</td>\
+                <td>\(label(definition.severity))</td><td class="num">\(count.formatted())</td></tr>
+                """
+            }.joined()
+            html += """
+            <section class="all-issues"><h2>\(title)</h2>
+            <table><thead><tr><th>Issue</th><th>Priority</th><th class="num">Pages</th></tr></thead><tbody>\(rows)</tbody></table>
+            </section>
             """
-            <tr class="\(definition.severity.cssClass)"><td>\(ReportBuilder.escape("\(definition.category.rawValue): \(definition.title)"))</td>\
-            <td>\(label(definition.severity))</td><td class="num">\(count.formatted())</td></tr>
-            """
-        }.joined()
-        return """
-        <section class="all-issues"><h2>Every issue found</h2>
-        <table><thead><tr><th>Issue</th><th>Priority</th><th class="num">Pages</th></tr></thead><tbody>\(rows)</tbody></table>
-        </section>
-        """
+        }
+        return html
     }
 
     // MARK: - The client
@@ -104,6 +115,10 @@ public enum ClientSummaryBuilder {
         var code: String
         var severity: IssueSeverity
         var area: Area
+        /// Errors, warnings or notices by severity, or Lighthouse or Sitemap, kept apart.
+        var group: IssueGroup {
+            IssueCatalogue.definition(for: code)?.group ?? IssueGroup(severity)
+        }
         /// Separate fixes: an address, an image, a group of pages, a link in the theme, or a page.
         var items = 0
         var pages: Set<Int64> = []
@@ -217,7 +232,7 @@ public enum ClientSummaryBuilder {
     /// affected now against then.
     private static func progress(_ problems: [Kind], baseline: CrawlStore, store: CrawlStore,
                                  config: CrawlConfig) throws -> String {
-        let before = try kinds(store: baseline)
+        let before = try kinds(store: baseline).filter { !$0.group.isApart }
         let now = Set(problems.map(\.code))
         let then = Set(before.map(\.code))
         let fixed = before.filter { !now.contains($0.code) }
@@ -285,10 +300,35 @@ public enum ClientSummaryBuilder {
     }
 
     private static func working(_ problems: [Kind]) -> String {
-        let clear = Area.allCases.filter { area in !problems.contains { $0.area == area } }
+        // Speed has its own section, with the sitemap: it isn't one of the pages' areas.
+        let clear = Area.allCases.filter { area in area != .speed && !problems.contains { $0.area == area } }
         guard !clear.isEmpty else { return "" }
         let items = clear.map { "<li><strong>\($0.label):</strong> \(ReportBuilder.escape($0.good))</li>" }.joined()
         return "<section><h2>What's working</h2><ul class=\"plain good\">\(items)</ul></section>"
+    }
+
+    /// Speed and the sitemap, kept apart from the pages' problems: Lighthouse measures a sample of
+    /// pages, and the sitemap is a file of its own, so neither counts towards the pages' totals.
+    private static func apart(_ kinds: [Kind]) -> String {
+        guard !kinds.isEmpty else { return "" }
+        var html = "<section><h2>Speed and sitemap</h2>"
+        for (title, why, group) in [
+            ("Speed", Area.speed.why + " Measured by Lighthouse on a sample of pages.", IssueGroup.lighthouse),
+            ("Sitemap", "The XML sitemap tells search engines which pages to index: it should list every page that matters, and nothing else.", .sitemap),
+        ] {
+            let chosen = kinds.filter { $0.group == group }
+            guard !chosen.isEmpty else { continue }
+            let pages = Set(chosen.flatMap(\.pages)).count
+            html += """
+            <div class="issue area">
+              <div class="issue-head"><strong>\(title)</strong>
+              <span class="muted">\(chosen.count) \(chosen.count == 1 ? "problem" : "problems") · \(pages.formatted()) \(pages == 1 ? "page" : "pages")</span></div>
+              <p>\(ReportBuilder.escape(why))</p>
+              <ul class="plain">\(chosen.map { "<li>\(ReportBuilder.escape(sentence($0)))</li>" }.joined())</ul>
+            </div>
+            """
+        }
+        return html + "</section>"
     }
 
     private static func nextSteps(_ problems: [Kind], options: ReportOptions) -> String {
@@ -436,7 +476,7 @@ public enum ClientSummaryBuilder {
             switch self {
             case .links: "no broken links or unnecessary redirects."
             case .images: "images are described and sized well."
-            case .settings: "security headers and the sitemap are in order."
+            case .settings: "security headers are in order."
             case .duplicates: "every page has its own title, description and content."
             case .speed: "no speed problems in the pages measured."
             case .products: "product details are complete."

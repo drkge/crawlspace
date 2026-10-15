@@ -114,6 +114,8 @@ struct IssueDTO: Codable, Sendable {
     var code: String
     var category: String
     var severity: String
+    /// "error", "warning" or "notice" by severity, or "lighthouse" or "sitemap", kept apart.
+    var group: String
     var title: String
     var description: String
     var howToFix: String
@@ -125,6 +127,7 @@ struct IssueDTO: Codable, Sendable {
         code = definition.code
         category = definition.category.rawValue
         severity = definition.severity.name
+        group = definition.group.rawValue
         title = definition.title
         description = definition.description
         howToFix = definition.howToFix

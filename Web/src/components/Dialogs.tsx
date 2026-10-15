@@ -7,7 +7,7 @@ import {
   type Comparison,
   type CrawlListItem,
   type Settings,
-  type Severity as SeverityName,
+  type IssueGroup,
 } from '../api'
 import { number, relativeDate, useStoredState, useEvents } from '../hooks'
 import { Dialog, Severity, messageOf, useAction, useToast } from '../ui'
@@ -369,18 +369,21 @@ interface ListChoice {
   listName: string
 }
 
-/** Where one severity's tasks go: a list that's there, or one to make (in a folder, or in the space). */
+/** Where one group's tasks go: a list that's there, or one to make (in a folder, or in the space). */
 interface ListTarget {
   listID?: string
   folderName: string | null
   listName: string
 }
 
-/** The overview's lists: one per severity, saved under "errors", "warnings" and "notices". */
-const overviewLists: { id: string; severity: SeverityName; label: string }[] = [
-  { id: 'errors', severity: 'error', label: 'Errors' },
-  { id: 'warnings', severity: 'warning', label: 'Warnings' },
-  { id: 'notices', severity: 'notice', label: 'Notices' },
+/** The overview's lists: one per severity, saved under "errors", "warnings" and "notices", and
+ * Lighthouse and Sitemap, kept apart and filed only when ticked. */
+const overviewLists: { id: string; group: IssueGroup; label: string }[] = [
+  { id: 'errors', group: 'error', label: 'Errors' },
+  { id: 'warnings', group: 'warning', label: 'Warnings' },
+  { id: 'notices', group: 'notice', label: 'Notices' },
+  { id: 'lighthouse', group: 'lighthouse', label: 'Lighthouse' },
+  { id: 'sitemap', group: 'sitemap', label: 'Sitemap' },
 ]
 type OverviewList = (typeof overviewLists)[number]
 const standardTarget = (list: OverviewList): ListTarget => ({ folderName: 'Crawlspace', listName: list.label })
@@ -390,7 +393,8 @@ const standardTargets = () => Object.fromEntries(overviewLists.map((list) => [li
 
 /**
  * Files the overview into ClickUp: one task per kind of problem, in a list for each severity —
- * any list in the space, or a new one (Crawlspace › Errors, Warnings, Notices by default).
+ * any list in the space, or a new one (Crawlspace › Errors, Warnings, Notices by default) — and,
+ * when ticked, Lighthouse and Sitemap in lists of their own.
  * Remembered for the site, so a rescan goes to the same places.
  */
 export function ClickUpDialog({ crawlID, onClose }: { crawlID: string; onClose: () => void }) {
@@ -405,7 +409,7 @@ export function ClickUpDialog({ crawlID, onClose }: { crawlID: string; onClose: 
   const [lists, setLists] = useState<ListChoice[] | null>(null)
   const [targets, setTargets] = useState<Record<string, ListTarget>>(standardTargets)
   const [remembered, setRemembered] = useState<{ spaceID: string; targets: Partial<Record<string, ListTarget>> } | null>(null)
-  const [severities, setSeverities] = useState<SeverityName[]>(['error', 'warning'])
+  const [groups, setGroups] = useState<IssueGroup[]>(['error', 'warning'])
   const [tag, setTag] = useState('')
   const [plan, setPlan] = useState('')
   const [busy, setBusy] = useState(false)
@@ -418,7 +422,7 @@ export function ClickUpDialog({ crawlID, onClose }: { crawlID: string; onClose: 
     api.get<{ settings: Settings; tokens: { kind: string; masked?: string }[] }>('/api/settings').then(({ settings, tokens }) => {
       setSettings(settings)
       setHasToken(tokens.some((entry) => entry.kind === 'clickup' && !!entry.masked))
-      setSeverities(settings.clickUpSeverities)
+      setGroups(settings.clickUpGroups)
     })
   }, [])
 
@@ -479,8 +483,8 @@ export function ClickUpDialog({ crawlID, onClose }: { crawlID: string; onClose: 
   const setTarget = (entry: OverviewList, target: ListTarget) => setTargets({ ...targets, [entry.id]: target })
   const space = spaces?.find((entry) => entry.id === spaceID)
   const destination = { spaceID, spaceName: space?.name ?? '', targets }
-  const filing = overviewLists.filter((entry) => severities.includes(entry.severity))
-  const request = { destination, severities, extraTag: tag }
+  const filing = overviewLists.filter((entry) => groups.includes(entry.group))
+  const request = { destination, groups, extraTag: tag }
   const requestKey = JSON.stringify(request)
   useEffect(() => {
     if (!settings) return
@@ -564,16 +568,17 @@ export function ClickUpDialog({ crawlID, onClose }: { crawlID: string; onClose: 
             <p className="hint">
               ClickUp gets this crawl's issues as the app lists them: one task per issue, such as Errors › H1: Missing, with its URLs.
               Exporting replaces the site's tasks from an earlier export in these lists, so ClickUp shows this crawl and nothing older.
+              Lighthouse and Sitemap issues go in lists of their own when ticked, and their lists are left alone when not.
             </p>
             {overviewLists.map((entry) => {
               const target = targets[entry.id] ?? standardTarget(entry)
               const isNew = !target.listID
-              const on = severities.includes(entry.severity)
+              const on = groups.includes(entry.group)
               return (
                 <div className="severity-row" key={entry.id}>
                   <label className="check">
-                    <input type="checkbox" checked={on} onChange={() => toggle(severities, entry.severity, setSeverities)} />
-                    <Severity severity={entry.severity} /> {entry.label}
+                    <input type="checkbox" checked={on} onChange={() => toggle(groups, entry.group, setGroups)} />
+                    <Severity severity={entry.group} /> {entry.label}
                   </label>
                   <div className="stack" style={{ gap: 6 }}>
                     <select
