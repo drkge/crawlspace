@@ -570,7 +570,10 @@ extension CrawlStore {
         try pool.write { db in
             try db.execute(sql: "DELETE FROM issues WHERE code NOT IN (\(codes.map { _ in "?" }.joined(separator: ",")))",
                            arguments: StatementArguments(codes))
-            let insert = try db.cachedStatement(sql: "INSERT OR IGNORE INTO issues (code, url_id) VALUES (?, ?)")
+            // Only onto URLs still crawled: one the analysis has since moved under Not Crawled has none.
+            let insert = try db.cachedStatement(sql: """
+                INSERT OR IGNORE INTO issues (code, url_id) SELECT ?, id FROM urls WHERE id = ? AND state = \(URLState.crawled.rawValue)
+                """)
             for row in rows { try insert.execute(arguments: [row.code, row.urlID]) }
         }
     }

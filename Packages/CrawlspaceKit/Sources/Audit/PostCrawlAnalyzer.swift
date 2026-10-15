@@ -13,6 +13,7 @@ public enum PostCrawlAnalyzer {
             let placeholders = Array(repeating: "?", count: codes.count).joined(separator: ",")
             try db.execute(sql: "DELETE FROM issues WHERE code IN (\(placeholders))", arguments: StatementArguments(codes))
 
+            try refusals(db)
             try duplicates(db)
             try linkTargets(db)
             if config.ecommerceActive { try ecommerce(db, config: config) }
@@ -73,6 +74,27 @@ public enum PostCrawlAnalyzer {
             WHERE (lh_m_score < 90 OR lh_d_score < 90)
               AND COALESCE(lh_m_score, 100) >= 50 AND COALESCE(lh_d_score, 100) >= 50
             """)
+    }
+
+    /// Pages of the site that a crawl saved before PageProcessor knew better filed with the site's
+    /// refusal as their answer — a 429, or bot protection's challenge — go under Not Crawled with
+    /// the reason, as a crawl files them now. So running the analysis again corrects an old crawl:
+    /// the refusal isn't a client error, and links to the page aren't broken.
+    private static func refusals(_ db: Database) throws {
+        let rows = try Row.fetchAll(db, sql: """
+            SELECT id, status_code FROM urls
+            WHERE is_internal = 1 AND state = \(URLState.crawled.rawValue) AND \(LinkCheck.sqlThrottled("urls"))
+            """)
+        for row in rows {
+            let id: Int64 = row[0], status: Int = row[1]
+            try db.execute(sql: "DELETE FROM issues WHERE url_id = ?", arguments: [id])
+            try db.execute(sql: """
+                UPDATE urls SET state = \(URLState.skipped.rawValue), skip_reason = ?,
+                    status_code = NULL, status_text = NULL, headers = NULL, content_type = NULL, size_bytes = NULL,
+                    response_ms = NULL, ttfb_ms = NULL, indexability = 0, indexability_reason = NULL
+                WHERE id = ?
+                """, arguments: [LinkCheck.refusalReason(status: status), id])
+        }
     }
 
     private static func duplicates(_ db: Database) throws {

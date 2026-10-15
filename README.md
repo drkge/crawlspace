@@ -437,6 +437,12 @@ placeholder at the sizes that are missing — 64pt among them.
   looked at in a browser; only 404s, 410s, 400s, server errors and dead hosts count as broken.
   Crawlspace won't impersonate a browser to get past them. `crawlspace analyse <package>`
   re-runs the analysis on a saved crawl, which is how an old crawl picks up changes like this.
+- **Nor are pages of the site it wouldn't serve.** Cloudflare in front of a Shopify store answers a
+  crawler in bursts with 429 or a bot challenge. A page of the site refused like that is waited for
+  and asked again, three times, 10, 30 and 60 seconds apart (or as long as the site says). If it's
+  still refused, it's listed under Not Crawled with the reason, not filed as a client error, and
+  links to it aren't counted as broken. **Crawl ▸ Run Crawl Analysis Again** corrects a crawl saved
+  before this, and a page check leaves a page it's refused as it was.
 - **The pages of a list aren't duplicates.** A collection's `?page=2` and on, and a blog's
   `/page/2/` and on, share the first page's heading, description and most of its text, because
   that's how a list is built. Google treats each page of a series as a page in its own right,
