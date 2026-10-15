@@ -149,6 +149,14 @@ export interface CrawlListItem {
   readable: boolean
 }
 
+/** Where a check comes from: published guidance, or a rule of thumb with `title` saying why it's one. */
+export interface IssueSource {
+  kind: 'google' | 'bing' | 'webStandard' | 'lighthouse' | 'ruleOfThumb'
+  /** The document, or for a rule of thumb, why it's one. */
+  title: string
+  url?: string
+}
+
 export interface Issue {
   code: string
   category: string
@@ -156,6 +164,7 @@ export interface Issue {
   title: string
   description: string
   howToFix: string
+  sources: IssueSource[]
 }
 
 export interface Bucket {

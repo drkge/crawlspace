@@ -106,6 +106,13 @@ there's no Google account to connect.
 
 Since 2.0: pages checked in place, change patterns, an overview in ClickUp, and a client summary.
 
+Each check says where it comes from, in the inspector's Issues tab and at the top of an issue's
+list. Most link to the document behind them: Google Search Central, the Bing Webmaster Guidelines,
+a web standard (HTML, WCAG, W3C Mixed Content and CSP, HSTS) or Lighthouse. A few are labelled
+**Rule of thumb**, with the reason: they're common SEO advice, such as titles under 60 characters,
+images under 100 KB or one H1 a page, that no search engine publishes as a rule. They're kept,
+with their usual severity, so they can be weighed as advice rather than read as rules.
+
 ## Connections
 
 **Maximum connections** is a ceiling, and by default Crawlspace looks for a kinder number under it.

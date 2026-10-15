@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import type { IssueSource } from './api'
 
 /** A modal sheet. Escape and clicking outside close it unless `busy`. */
 export function Dialog(props: {
@@ -158,6 +159,29 @@ export function useAction() {
       }
     },
     [toast],
+  )
+}
+
+/** Where an issue's check comes from, as chips: each linking to its document, and a rule of thumb
+ * muted, followed by why it's only that. */
+export function Sources({ sources }: { sources: IssueSource[] }) {
+  const name = (source: IssueSource) =>
+    ({ google: 'Google', bing: 'Bing', lighthouse: 'Lighthouse', ruleOfThumb: 'Rule of thumb' } as Record<string, string>)[source.kind] ??
+    source.title.split(':')[0]
+  return (
+    <span className="sources">
+      {sources.map((source) =>
+        source.url ? (
+          <a key={source.url} className="chip source-chip" href={source.url} target="_blank" rel="noopener noreferrer" title={source.title}>
+            {name(source)} ↗
+          </a>
+        ) : (
+          <span key={source.title} className="source-reason">
+            <span className="chip source-chip muted">{name(source)}</span> <span className="hint">{source.title}</span>
+          </span>
+        ),
+      )}
+    </span>
   )
 }
 
