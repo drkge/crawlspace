@@ -117,6 +117,9 @@ struct IssueDTO: Codable, Sendable {
     var title: String
     var description: String
     var howToFix: String
+    /// Where the check comes from, each with its kind (google, bing, webStandard, lighthouse,
+    /// ruleOfThumb), the document's title — or a rule of thumb's reason — and its address.
+    var sources: [IssueSource]
 
     init(_ definition: IssueDefinition) {
         code = definition.code
@@ -125,6 +128,7 @@ struct IssueDTO: Codable, Sendable {
         title = definition.title
         description = definition.description
         howToFix = definition.howToFix
+        sources = definition.sources
     }
 }
 

@@ -719,6 +719,24 @@ label.check input {
 .chip.warn {
   color: var(--warning);
 }
+.sources {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  font-weight: 400;
+}
+a.chip.source-chip {
+  color: var(--text);
+  text-decoration: none;
+}
+a.chip.source-chip:hover {
+  text-decoration: underline;
+}
+.chip.source-chip.muted {
+  color: var(--text-secondary);
+  font-style: italic;
+}
 .serp {
   background: var(--bg-sunken);
   border-radius: 8px;

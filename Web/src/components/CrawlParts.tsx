@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { api, crawlPath, type Bucket, type Counts, type CrawlState, type Issue, type MeasuredPage } from '../api'
 import { duration, number, plural } from '../hooks'
-import { ScoreGauge, Severity } from '../ui'
+import { ScoreGauge, Severity, Sources } from '../ui'
 
 const pageFilters: [string, string][] = [
   ['filter:internalHTML', 'Internal HTML'],
@@ -99,6 +99,10 @@ export function IssueBanner({ issue, count }: { issue: Issue; count: number }) {
       <p style={{ margin: 0 }}>
         <strong>How to fix: </strong>
         {issue.howToFix}
+      </p>
+      <p className="row" style={{ margin: '6px 0 0', gap: 6 }}>
+        <strong>Source:</strong>
+        <Sources sources={issue.sources} />
       </p>
     </details>
   )

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, crawlPath, type Inspector as InspectorData, type Issue, type LighthouseRun, type LinkRow } from '../api'
 import { isNofollow, linkPositions, linkTypes, number, relativeDate, useStoredState } from '../hooks'
-import { ScoreGauge, Severity, messageOf, useToast } from '../ui'
+import { ScoreGauge, Severity, Sources, messageOf, useToast } from '../ui'
 
 type Tab = 'details' | 'issues' | 'links' | 'speed' | 'source'
 
@@ -211,6 +211,7 @@ function Issues({
               </button>
             )}
           </div>
+          <Sources sources={issue.sources} />
           <div className="hint">{issue.description}</div>
           {evidence && evidence.items.length > 0 && (
             <ul className="evidence">
