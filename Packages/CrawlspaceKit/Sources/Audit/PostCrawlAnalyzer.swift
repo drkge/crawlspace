@@ -21,7 +21,7 @@ public enum PostCrawlAnalyzer {
             try inlinkCounts(db)
             try redirectChains(db)
             try sitemapAudit(db)
-            try NearDuplicateAnalyzer.run(db, indexableHTML: indexableHTML)
+            try NearDuplicateAnalyzer.run(db, indexableHTML: duplicateCandidates)
             try speed(db)
 
             try db.execute(
@@ -32,6 +32,12 @@ public enum PostCrawlAnalyzer {
     }
 
     private static let indexableHTML = "is_internal = 1 AND state = 1 AND resource_type = 0 AND indexability = 1"
+
+    /// Pages that can be duplicates of each other: indexable ones, but not the later pages of a
+    /// list (?page=2 and on). Google treats each page of a series as its own page, and they share
+    /// the first page's heading and most of its text by design; counting them would make every
+    /// paginated collection, and its first page, a duplicate.
+    private static let duplicateCandidates = "\(indexableHTML) AND NOT later_page(url)"
 
     /// Codes worked out from Lighthouse results, which can arrive after the crawl's own analysis.
     public static let speedCodes = ["lh_low_score", "lh_needs_improvement", "lh_poor_lcp", "lh_poor_cls", "lh_high_tbt"]
@@ -78,10 +84,10 @@ public enum PostCrawlAnalyzer {
             try db.execute(sql: """
                 INSERT OR IGNORE INTO issues (code, url_id)
                 SELECT ?, id FROM urls
-                WHERE \(indexableHTML) AND \(column) IS NOT NULL AND \(column) != ''
+                WHERE \(duplicateCandidates) AND \(column) IS NOT NULL AND \(column) != ''
                   AND \(column) IN (
                     SELECT \(column) FROM urls
-                    WHERE \(indexableHTML) AND \(column) IS NOT NULL AND \(column) != ''
+                    WHERE \(duplicateCandidates) AND \(column) IS NOT NULL AND \(column) != ''
                     GROUP BY \(column) HAVING COUNT(*) > 1)
                 """, arguments: [code])
         }
@@ -89,8 +95,8 @@ public enum PostCrawlAnalyzer {
         try db.execute(sql: """
             INSERT OR IGNORE INTO issues (code, url_id)
             SELECT 'content_exact_duplicate', id FROM urls
-            WHERE \(indexableHTML) AND word_count > 0 AND content_hash IN (
-                SELECT content_hash FROM urls WHERE \(indexableHTML) AND word_count > 0
+            WHERE \(duplicateCandidates) AND word_count > 0 AND content_hash IN (
+                SELECT content_hash FROM urls WHERE \(duplicateCandidates) AND word_count > 0
                 GROUP BY content_hash HAVING COUNT(*) > 1)
             """)
     }
