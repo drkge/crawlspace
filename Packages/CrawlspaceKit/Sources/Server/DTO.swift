@@ -56,7 +56,7 @@ struct CheckResultDTO: Codable, Sendable {
         var title: String
         var pages: Int
         /// Other URLs still with it, for an issue resolved: worth checking too.
-        var elsewhere: Int?
+        var elsewhere: [Int64]?
     }
     var checked: Int
     var resolved: [Count]
@@ -64,7 +64,7 @@ struct CheckResultDTO: Codable, Sendable {
     var remaining: Int
 
     init(_ result: PageCheck.Result) {
-        func counts(_ codes: [String: Int], elsewhere: [String: Int] = [:]) -> [Count] {
+        func counts(_ codes: [String: Int], elsewhere: [String: [Int64]] = [:]) -> [Count] {
             codes.map { code, pages in
                 Count(code: code, title: IssueCatalogue.definition(for: code).map { "\($0.category.rawValue): \($0.title)" } ?? code,
                       pages: pages, elsewhere: elsewhere[code])

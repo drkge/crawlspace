@@ -125,17 +125,7 @@ export default function CrawlPage() {
       toast(ids.length === 1 ? 'Checking the page…' : `Checking ${number(ids.length)} pages…`)
     }
   }
-  /** Checks every page that still has an issue another check found fixed. */
-  const checkIssue = async (issue: CheckResult['resolved'][number]) => {
-    const count = issue.elsewhere ?? 0
-    if (count > 500 && !window.confirm(`Check all ${number(count)} pages with ${issue.title}? Each is fetched again.`)) return
-    const next = await run(() => api.post<CrawlState>(`${path}/check`, { issue: issue.code }))
-    if (next) {
-      setState(next)
-      setCheckResult(null)
-      toast(`Checking ${number(count)} ${count === 1 ? 'page' : 'pages'} with ${issue.title}…`)
-    }
-  }
+
   const checkDisabled = !state || state.isRunning || state.check.running
 
   const selectURL = async (url: string) => {
@@ -281,20 +271,42 @@ export default function CrawlPage() {
         <div className="check-result">
           <div className="check-result-lines">
             <span>{checkSummary(checkResult)}</span>
-            {checkResult.resolved
-              .filter((issue) => issue.elsewhere)
-              .map((issue) => (
-                <span key={issue.code} className="row" style={{ gap: 8 }}>
-                  <span>
-                    {issue.title} was fixed{issue.pages > 1 ? ` on ${number(issue.pages)} pages` : ''}, and{' '}
-                    {number(issue.elsewhere ?? 0)} other {issue.elsewhere === 1 ? 'page still has' : 'pages still have'} it: the same fix may
-                    have reached them.
-                  </span>
-                  <button className="small" disabled={checkDisabled} onClick={() => checkIssue(issue)}>
-                    Check {issue.elsewhere === 1 ? 'It' : `Those ${number(issue.elsewhere ?? 0)}`}
-                  </button>
-                </span>
-              ))}
+            {(() => {
+              // Each issue fixed that other pages still have, and, when there are several, every page
+              // with any of them, so a theme fix that cleared a few kinds of issue is checked in one go.
+              const fixed = checkResult.resolved.filter((issue) => issue.elsewhere?.length)
+              const all = [...new Set(fixed.flatMap((issue) => issue.elsewhere ?? []))]
+              const button = (ids: number[], label: string) => (
+                <button className="small" disabled={checkDisabled} onClick={() => checkPages(ids)}>
+                  {label}
+                </button>
+              )
+              return (
+                <>
+                  {fixed.length > 1 && (
+                    <span className="row" style={{ gap: 8 }}>
+                      <span>
+                        {fixed.length} kinds of issue were fixed, and {number(all.length)} other {all.length === 1 ? 'page has' : 'pages have'} at
+                        least one of them: the same fixes may have reached them.
+                      </span>
+                      {button(all, `Check All ${number(all.length)}`)}
+                    </span>
+                  )}
+                  {fixed.map((issue) => {
+                    const ids = issue.elsewhere ?? []
+                    return (
+                      <span key={issue.code} className="row" style={{ gap: 8 }}>
+                        <span>
+                          {issue.title} was fixed{issue.pages > 1 ? ` on ${number(issue.pages)} pages` : ''}, and {number(ids.length)} other{' '}
+                          {ids.length === 1 ? 'page still has' : 'pages still have'} it{fixed.length > 1 ? '.' : ': the same fix may have reached them.'}
+                        </span>
+                        {button(ids, ids.length === 1 ? 'Check It' : `Check Those ${number(ids.length)}`)}
+                      </span>
+                    )
+                  })}
+                </>
+              )
+            })()}
           </div>
           <button className="plain" title="Dismiss" onClick={() => setCheckResult(null)}>
             ×

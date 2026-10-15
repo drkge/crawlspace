@@ -29,10 +29,10 @@ public enum PageCheck {
         public var found: [String: Int] = [:]
         /// Issues still on the URLs checked.
         public var remaining = 0
-        /// For each issue resolved, how many other URLs in the crawl still have it: the same fix may
-        /// have reached them too — a theme's, say — and checking them would tell. Speed is left out,
-        /// since a check doesn't measure it.
-        public var elsewhere: [String: Int] = [:]
+        /// For each issue resolved, the other URLs in the crawl that still have it, most linked-to
+        /// first: the same fix may have reached them too — a theme's, say — and checking them would
+        /// tell. URLs this check just looked at are left out, and so is speed, which it doesn't measure.
+        public var elsewhere: [String: [Int64]] = [:]
     }
 
     public static func run(store: CrawlStore, ids: [Int64], password: String? = nil,
@@ -128,9 +128,11 @@ public enum PageCheck {
             for code in now.subtracting(then) { summary.found[code, default: 0] += 1 }
             summary.remaining += now.count
         }
-        let counts = try store.issueCounts()
+        let looked = Set(pages.map(\.id))
         for code in summary.resolved.keys where !code.hasPrefix("lh_") {
-            if let count = counts[code], count > 0 { summary.elsewhere[code] = count }
+            let others = try store.rowIDs(for: URLListQuery(filter: .issue(code), sortColumn: .inlinks, ascending: false))
+                .filter { !looked.contains($0) }
+            if !others.isEmpty { summary.elsewhere[code] = others }
         }
         return summary
     }
