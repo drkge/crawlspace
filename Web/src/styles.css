@@ -488,8 +488,12 @@ label.check input {
 .main {
   display: grid;
   grid-template-rows: auto auto 1fr;
+  /* One column, as wide as the pane: left to size itself, it grew to fit the toolbar, and the
+     table's sticky header row then reached over the inspector. The table scrolls sideways within. */
+  grid-template-columns: minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
 }
 .table-toolbar {
   white-space: nowrap;
