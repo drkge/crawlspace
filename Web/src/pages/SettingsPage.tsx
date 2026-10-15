@@ -26,6 +26,54 @@ interface TokenCheck {
   checkedAt: string
 }
 
+/** Who every client summary is prepared by, and its logo. */
+function ClientSummaryCard({ settings, onChange }: { settings: Settings; onChange: (next: SettingsResponse) => void }) {
+  const run = useAction()
+  const [preparedBy, setPreparedBy] = useState(settings.reportPreparedBy ?? '')
+  const save = (patch: Partial<Settings>) =>
+    run(async () => onChange(await api.put<SettingsResponse>('/api/settings', { ...settings, ...patch })))
+  const chooseLogo = (file: File | undefined) => {
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => save({ reportLogo: String(reader.result).split(',')[1] ?? null })
+    reader.readAsDataURL(file)
+  }
+  return (
+    <section className="card stack">
+      <h2>Client summaries</h2>
+      <p className="hint">
+        Every client summary is a PDF titled Website Summary, for the client the crawl is of, prepared by and carrying the logo set here.
+      </p>
+      <label className="field">
+        <span>Prepared by</span>
+        <input
+          type="text"
+          value={preparedBy}
+          placeholder="Your company"
+          onChange={(event) => setPreparedBy(event.target.value)}
+          onBlur={() => preparedBy.trim() !== (settings.reportPreparedBy ?? '') && save({ reportPreparedBy: preparedBy.trim() })}
+        />
+      </label>
+      <div className="row wrap" style={{ gap: 12, alignItems: 'center' }}>
+        {settings.reportLogo ? (
+          <img src={`data:image/png;base64,${settings.reportLogo}`} alt="Logo" style={{ maxHeight: 46, maxWidth: 160 }} />
+        ) : (
+          <span className="hint">No logo yet.</span>
+        )}
+        <label className="button small">
+          {settings.reportLogo ? 'Change Logo…' : 'Choose Logo…'}
+          <input type="file" accept="image/png,image/jpeg" hidden onChange={(event) => chooseLogo(event.target.files?.[0])} />
+        </label>
+        {settings.reportLogo && (
+          <button className="small" onClick={() => save({ reportLogo: null })}>
+            Remove
+          </button>
+        )}
+      </div>
+    </section>
+  )
+}
+
 /** Tokens, updates and where things live. */
 export default function SettingsPage({ about, onChange }: { about: About | null; onChange: () => void }) {
   const run = useAction()
@@ -75,6 +123,8 @@ export default function SettingsPage({ about, onChange }: { about: About | null;
             </label>
           )}
         </section>
+
+        {state && <ClientSummaryCard settings={state.settings} onChange={setState} />}
 
         {state && (
           <TokensCard

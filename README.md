@@ -123,12 +123,14 @@ The **Export** menu has the things worth taking away from a finished crawl: the 
 ClickUp, the internal HTML table (or the table on screen) as CSV or Excel, and two reports as a PDF
 or web page. They download through the browser.
 
-- **Client Summary** is a few pages a client reads: the kinds of problem the site has, in plain
-  words with how many pages each touches (*2,165 images are larger files than they need to be,
-  shown on 12,251 pages*), the five to start with, each area with every kind of problem in it,
-  what's working, and which fixes are one change for the whole site. Pick an earlier crawl of the
-  site and it opens with what has changed since: every problem fixed, every problem new, and pages
-  affected then and now. No URL lists and no crawl settings.
+- **Client Summary** is a PDF a client reads, the same every time: *Website Summary*, for the client
+  the crawl is of — the name the site's home page gives it, "Rosy Roo" for rosyroo.co.uk — prepared
+  by and carrying the logo set in **Settings ▸ Client summaries**. In plain words, it gives the kinds
+  of problem the site has with how many pages each touches (*2,165 images are larger files than they
+  need to be, shown on 12,251 pages*), the five to start with, each area with every kind of problem in
+  it, what's working, and which fixes are one change for the whole site. Pick an earlier crawl of the
+  site and it opens with what has changed since. A table of every issue found, with its priority and
+  pages, ends it.
 - **Audit Report** is the full audit: every issue type found, with its description and fix, and
   the fixes it comes to — every image missing its alt text, every broken address, every page, each
   group of duplicates with its pages — then the response-code and depth charts, and how the crawl

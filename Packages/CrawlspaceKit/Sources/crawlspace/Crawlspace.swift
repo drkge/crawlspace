@@ -334,12 +334,18 @@ struct ExportCommand: AsyncParsableCommand {
 // MARK: - report
 
 struct Report: AsyncParsableCommand {
-    static let configuration = CommandConfiguration(abstract: "Build a client-facing audit report or summary (PDF or HTML).")
+    static let configuration = CommandConfiguration(
+        abstract: "Build a client-facing audit report (PDF or HTML) or summary (PDF).",
+        discussion: """
+            A summary is always "Website Summary", for the client the crawl is of, prepared by and with \
+            the logo set in Settings unless --prepared-by and --logo say otherwise.
+            """
+    )
 
     @Argument(help: "Path to a .crawlspace package.") var package: String
     @Option(name: .shortAndLong, help: "Output file (.pdf or .html).") var out: String
     @Option(help: "Report title.") var title: String = "SEO Audit"
-    @Option(help: "Client name shown in the header.") var client: String?
+    @Option(help: "Client name shown in the header; for a summary, the crawl's site's name unless given.") var client: String?
     @Option(name: .customLong("prepared-by"), help: "Who prepared the report.") var preparedBy: String?
     @Option(help: "Accent colour, e.g. #2F6FEB.") var accent: String = "#2F6FEB"
     @Option(help: "Logo image (PNG) to embed in the header.") var logo: String?
@@ -352,7 +358,14 @@ struct Report: AsyncParsableCommand {
         options.clientName = client ?? ""
         options.preparedBy = preparedBy ?? ""
         if let logo { options.logo = try Data(contentsOf: URL(filePath: logo)) }
-        if summary, title == "SEO Audit" { options.title = "Website Summary" }
+        if summary {
+            guard out.lowercased().hasSuffix(".pdf") else { throw ValidationError("A client summary is a PDF: name --out something.pdf.") }
+            let settings = SettingsStore.load()
+            options.title = "Website Summary"
+            if client == nil { options.clientName = Settings.clientName(store: store, settings: settings) }
+            if preparedBy == nil { options.preparedBy = settings.reportPreparedBy }
+            if logo == nil { options.logo = settings.reportLogo.flatMap { Data(base64Encoded: $0) } }
+        }
 
         let html = summary
             ? try ClientSummaryBuilder.html(store: store, baseline: try since.map { try CrawlStore.open(at: URL(filePath: $0)) },

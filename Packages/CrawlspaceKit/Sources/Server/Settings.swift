@@ -2,6 +2,7 @@ import Audit
 import CrawlCore
 import Export
 import Foundation
+import Storage
 
 /// Preferences that aren't secret, in `settings.json`. Secrets go through `CredentialStore`.
 public struct Settings: Codable, Sendable, Equatable {
@@ -10,6 +11,10 @@ public struct Settings: Codable, Sendable, Equatable {
     public var clickUpSeverities: [String] = ["error", "warning"]
     /// Check GitHub for new versions. Off only for development copies.
     public var automaticUpdates = true
+    /// Who client summaries say they were prepared by, and the logo they carry: the same on every one.
+    public var reportPreparedBy = ""
+    /// A PNG or JPEG, base64-encoded.
+    public var reportLogo: String?
 
     public init() {}
 
@@ -19,6 +24,19 @@ public struct Settings: Codable, Sendable, Equatable {
         clickUpDestinations = try c.decodeIfPresent([String: ClickUpDestination].self, forKey: .clickUpDestinations) ?? [:]
         clickUpSeverities = try c.decodeIfPresent([String].self, forKey: .clickUpSeverities) ?? d.clickUpSeverities
         automaticUpdates = try c.decodeIfPresent(Bool.self, forKey: .automaticUpdates) ?? d.automaticUpdates
+        reportPreparedBy = try c.decodeIfPresent(String.self, forKey: .reportPreparedBy) ?? d.reportPreparedBy
+        reportLogo = try c.decodeIfPresent(String.self, forKey: .reportLogo)
+    }
+
+    /// Who a crawl's site belongs to, for its client summary: the name its home page gives it, the
+    /// name its ClickUp space was given, or failing those its domain.
+    public static func clientName(store: CrawlStore, settings: Settings = SettingsStore.load()) -> String {
+        if let name = try? ClientSummaryBuilder.clientName(store: store) { return name }
+        guard let config = try? store.loadConfig() else { return "" }
+        let host = CrawlScope(config: config).startHost
+        if let space = settings.clickUpDestinations[host]?.spaceName, !space.isEmpty { return space }
+        let label = host.replacing(/^www\./, with: "").split(separator: ".").first.map(String.init) ?? host
+        return label.prefix(1).uppercased() + label.dropFirst()
     }
 
     static func severities(_ names: [String]) -> Set<IssueSeverity> {

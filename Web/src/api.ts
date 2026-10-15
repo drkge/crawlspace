@@ -345,6 +345,10 @@ export interface About {
 export interface Settings {
   clickUpSeverities: Severity[]
   automaticUpdates: boolean
+  /** Who every client summary is prepared by. */
+  reportPreparedBy: string
+  /** The logo on every client summary: a PNG or JPEG, base64-encoded. */
+  reportLogo?: string | null
 }
 
 export interface ScheduledCrawl {

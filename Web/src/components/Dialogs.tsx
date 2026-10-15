@@ -16,7 +16,6 @@ import { Dialog, Severity, messageOf, useAction, useToast } from '../ui'
 
 interface ReportSettings {
   title: string
-  summaryTitle?: string
   clientName: string
   preparedBy: string
   notes: string
@@ -56,8 +55,16 @@ export function ReportDialog({
   const [baseline, setBaseline] = useState('')
   const set = (patch: Partial<ReportSettings>) => setSettings({ ...settings, ...patch })
   const isSummary = kind === 'summary'
-  const title = isSummary ? (settings.summaryTitle ?? 'Website Summary') : settings.title
-  const setTitle = (value: string) => set(isSummary ? { summaryTitle: value } : { title: value })
+  // A summary's title, who prepared it and its logo are always the same; its client is the crawl's.
+  const [summary, setSummary] = useState<{ clientName: string; preparedBy: string; hasLogo: boolean } | null>(null)
+  const [clientName, setClientName] = useState('')
+  useEffect(() => {
+    if (!isSummary) return
+    api.get<{ clientName: string; preparedBy: string; hasLogo: boolean }>(`${crawlPath(crawlID)}/summary`).then((defaults) => {
+      setSummary(defaults)
+      setClientName(defaults.clientName)
+    })
+  }, [crawlID, isSummary])
 
   // Earlier crawls of the same site, newest first, the latest picked to show progress since.
   useEffect(() => {
@@ -82,13 +89,13 @@ export function ReportDialog({
   const build = async () => {
     setBusy(true)
     try {
-      await downloadFrom('POST', `${crawlPath(crawlID)}/export/report`, {
-        ...settings,
-        title,
-        logo,
-        kind,
-        baseline: isSummary ? baseline : undefined,
-      })
+      await downloadFrom(
+        'POST',
+        `${crawlPath(crawlID)}/export/report`,
+        isSummary
+          ? { kind, clientName, accent: settings.accent, baseline }
+          : { ...settings, logo, kind },
+      )
       onClose()
     } catch (error) {
       toast(messageOf(error), true)
@@ -104,51 +111,72 @@ export function ReportDialog({
       busy={busy}
       footer={
         <>
-          <div className="segmented">
-            <button className={settings.format === 'pdf' ? 'on' : ''} onClick={() => set({ format: 'pdf' })}>
-              PDF
-            </button>
-            <button className={settings.format === 'html' ? 'on' : ''} onClick={() => set({ format: 'html' })}>
-              Web page
-            </button>
-          </div>
+          {!isSummary && (
+            <div className="segmented">
+              <button className={settings.format === 'pdf' ? 'on' : ''} onClick={() => set({ format: 'pdf' })}>
+                PDF
+              </button>
+              <button className={settings.format === 'html' ? 'on' : ''} onClick={() => set({ format: 'html' })}>
+                Web page
+              </button>
+            </div>
+          )}
           <span className="spacer" />
           <button onClick={onClose} disabled={busy}>
             Cancel
           </button>
           <button className="primary" onClick={build} disabled={busy}>
-            {busy ? 'Building…' : isSummary ? 'Download Summary' : 'Download Report'}
+            {busy ? 'Building…' : isSummary ? 'Download Summary PDF' : 'Download Report'}
           </button>
         </>
       }
     >
-      <div className="form-grid">
-        <label className="field">
-          <span>Title</span>
-          <input type="text" value={title} onChange={(event) => setTitle(event.target.value)} />
-        </label>
-        <label className="field">
-          <span>Client</span>
-          <input type="text" value={settings.clientName} onChange={(event) => set({ clientName: event.target.value })} />
-        </label>
-        <label className="field">
-          <span>Prepared by</span>
-          <input type="text" value={settings.preparedBy} onChange={(event) => set({ preparedBy: event.target.value })} />
-        </label>
-      </div>
-      <label className="field">
-        <span>Introduction</span>
-        <textarea rows={3} style={{ fontFamily: 'inherit', fontSize: 13 }} value={settings.notes} onChange={(event) => set({ notes: event.target.value })} />
-      </label>
+      {isSummary ? (
+        <>
+          <label className="field">
+            <span>Client</span>
+            <input type="text" value={clientName} placeholder={summary ? '' : 'Working it out…'} onChange={(event) => setClientName(event.target.value)} />
+          </label>
+          <p className="hint">
+            {summary?.preparedBy
+              ? `Website Summary, prepared by ${summary.preparedBy}${summary.hasLogo ? ' with your logo' : ''}, as a PDF.`
+              : 'Website Summary, as a PDF.'}{' '}
+            Who it's prepared by, and the logo, are set in Settings.
+          </p>
+        </>
+      ) : (
+        <>
+          <div className="form-grid">
+            <label className="field">
+              <span>Title</span>
+              <input type="text" value={settings.title} onChange={(event) => set({ title: event.target.value })} />
+            </label>
+            <label className="field">
+              <span>Client</span>
+              <input type="text" value={settings.clientName} onChange={(event) => set({ clientName: event.target.value })} />
+            </label>
+            <label className="field">
+              <span>Prepared by</span>
+              <input type="text" value={settings.preparedBy} onChange={(event) => set({ preparedBy: event.target.value })} />
+            </label>
+          </div>
+          <label className="field">
+            <span>Introduction</span>
+            <textarea rows={3} style={{ fontFamily: 'inherit', fontSize: 13 }} value={settings.notes} onChange={(event) => set({ notes: event.target.value })} />
+          </label>
+        </>
+      )}
       <div className="row wrap" style={{ gap: 20 }}>
         <label className="field">
           <span>Accent colour</span>
           <input type="color" value={settings.accent} onChange={(event) => set({ accent: event.target.value.toUpperCase() })} />
         </label>
-        <label className="field">
-          <span>Logo (PNG or JPEG)</span>
-          <input type="file" accept="image/png,image/jpeg" onChange={(event) => chooseLogo(event.target.files?.[0])} />
-        </label>
+        {!isSummary && (
+          <label className="field">
+            <span>Logo (PNG or JPEG)</span>
+            <input type="file" accept="image/png,image/jpeg" onChange={(event) => chooseLogo(event.target.files?.[0])} />
+          </label>
+        )}
         {!isSummary && (
           <>
             <label className="field" title="The HTML report shows the rest behind Show more; the PDF lists every one.">
@@ -176,9 +204,9 @@ export function ReportDialog({
             ))}
           </select>
           <span className="hint">
-            {isSummary && earlier.length === 0
+            {earlier.length === 0
               ? `No earlier crawl of ${site} to compare with.`
-              : 'Plain words, no URL lists: what to fix first, by area, and what has changed since.'}
+              : 'Plain words: what to fix first, by area, and what has changed since, then a table of every issue.'}
           </span>
         </label>
       )}
