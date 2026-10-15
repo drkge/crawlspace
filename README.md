@@ -176,21 +176,19 @@ a reason to make a pattern — a theme error counts even once — and anything e
 
 ## Filing issues into ClickUp
 
-**Export ▸ Issues to ClickUp…** (⇧⌘K) puts an **overview** into ClickUp: one task per kind of
-problem, in an Errors, Warnings or Notices list in a Crawlspace folder of the space you choose —
-*Errors › Page Titles: Missing*, *Warnings › Page Titles: Too Long*. Each says how many there are to
-fix, counted as [fixes](#what-counts-as-one-fix); what the problem is and how to fix it; and a link
-to its pages in the crawl in Crawlspace, where they're checked once fixed. A pair measured two ways
-(a title over 60 characters and 561 pixels), and a broken address with the links to it, count as
-one. Priority comes from the severity: errors Urgent, warnings High, notices Low.
+**Export ▸ Issues to ClickUp…** (⇧⌘K) files the crawl's issues as the app lists them: one task per
+issue, in the Errors, Warnings or Notices list for its severity, in a Crawlspace folder of the space
+you choose — *Errors › Links: Links to Broken Internal URLs*, *Warnings › Page Titles: Over 561
+Pixels*. Each says how many URLs have it, what's wrong and how to fix it, lists the URLs (the first
+hundred, most linked-to first) and links to them all in the crawl in Crawlspace, where pages are
+checked once fixed. Priority comes from the severity: errors Urgent, warnings High, notices Low.
 
-ClickUp changes only when you export, and shows the crawl you export: a kind of problem it found is
-a task, opened again if it was closed, and a task for a kind it didn't find is closed, "Not found
-by" that crawl. Exporting a later crawl — or the same one, once pages have been checked — brings
-the overview up to date.
+Each export replaces the last: every task an earlier export filed for the site in those lists —
+tagged `crawlspace` and the site — is deleted (ClickUp keeps deleted tasks in its Trash for a
+while), and the crawl's issues are filed afresh. ClickUp changes only when you export.
 Each list can go to any list in the space or a new one, and is remembered for the site. The panel
-says what it's about to do before it does it: *18 overview tasks, one per kind of problem: 1 in
-Errors and 17 in Warnings.*
+says what it's about to do before it does it: *40 tasks, one per issue, as the crawl lists them: 2 in
+Errors, 14 in Warnings and 24 in Notices.*
 
 Authentication is a personal API token from ClickUp ▸ Settings ▸ Apps, kept with Crawlspace's other
 secrets (see *Credentials* below). From the command line:
@@ -207,10 +205,9 @@ crawlspace clickup audit.crawlspace --space 90120001 --severities error,warning
 list. The token comes from `CLICKUP_TOKEN` or the saved token rather than a flag, so it stays out of
 shell history.
 
-Tasks are matched by name among those tagged for the site, so it works from a different Mac, and an
-unchanged task isn't touched. Tasks from earlier layouts (a task per issue with subtasks for pages,
-or a task per fix) are left as they are; the result says how many are still open, worth archiving.
-Their links into Crawlspace open the site's latest crawl.
+Tasks are found by their tags, so an export from a different Mac replaces them too, and tasks from
+earlier layouts go the same way. Other sites' tasks, and anything not filed by Crawlspace, are left
+alone.
 
 ## Comparing two crawls
 

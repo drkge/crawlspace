@@ -215,6 +215,12 @@ public struct ClickUpClient: Sendable {
                            contentType: "application/json", as: Ignored.self)
     }
 
+    /// Deletes a task, and its subtasks. ClickUp keeps it in the workspace's Trash for a while.
+    public func deleteTask(id: String) async throws {
+        struct Ignored: Decodable {}
+        _ = try await send(method: "DELETE", path: "/v2/task/\(id)", body: nil, contentType: nil, as: Ignored.self)
+    }
+
     /// Notes what changed, so a task carries its own history between crawls.
     public func comment(taskID: String, text: String) async throws {
         struct Comment: Encodable { var comment_text: String; var notify_all = false }
@@ -270,7 +276,8 @@ public struct ClickUpClient: Sendable {
         switch http.statusCode {
         case 200...299:
             do {
-                return try JSONDecoder().decode(type, from: data)
+                // A delete answers with nothing at all.
+                return try JSONDecoder().decode(type, from: data.isEmpty ? Data("{}".utf8) : data)
             } catch {
                 throw ClickUpError.badResponse(String(decoding: data.prefix(300), as: UTF8.self))
             }
