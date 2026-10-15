@@ -18,6 +18,15 @@ public enum LinkCheck {
     /// error response: some of them appear on every response those services serve.
     static let challengeHeaders = ["cf-mitigated", "x-datadome", "x-amzn-waf-action", "x-px-block"]
 
+    /// A site saying "not now" to a crawler, which says nothing about the page itself: a 429, or a
+    /// bot-protection challenge on an error.
+    public static func isThrottled(status: Int?, headers: [String: String]) -> Bool {
+        guard let status, status >= 400 else { return false }
+        if status == 429 { return true }
+        let names = Set(headers.keys.map { $0.lowercased() })
+        return challengeHeaders.contains { names.contains($0) }
+    }
+
     public static func refusedAutomatedCheck(status: Int?, headers: [String: String]) -> Bool {
         guard let status, status >= 400 else { return false }
         if refusalStatuses.contains(status) { return true }
@@ -39,6 +48,19 @@ public enum LinkCheck {
             ["\(alias).url LIKE '%\(path)%'", "\(alias).redirect_url LIKE '%\(path)%'"]
         }
         return "(" + patterns.joined(separator: " OR ") + ")"
+    }
+
+    /// Why a page of the site that kept refusing the crawler wasn't crawled, as Not Crawled lists it.
+    public static func refusalReason(status: Int) -> String {
+        status == 429
+            ? "The site kept asking the crawler to slow down (429)"
+            : "The site's bot protection kept challenging the crawler (\(status))"
+    }
+
+    /// `isThrottled` as SQL over a `urls` row, for correcting crawls saved before it existed.
+    public static func sqlThrottled(_ alias: String) -> String {
+        let headers = challengeHeaders.map { "\(alias).headers LIKE '%\"\($0)\"%'" }.joined(separator: " OR ")
+        return "(\(alias).status_code = 429 OR (\(alias).status_code >= 400 AND (\(headers))))"
     }
 
     /// The same test as SQL over a `urls` row, for re-checking crawls saved before it existed.

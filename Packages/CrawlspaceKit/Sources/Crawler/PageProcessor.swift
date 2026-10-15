@@ -26,6 +26,9 @@ struct ProcessOutcome: Sendable {
     var screenshot: Data?
     /// Set when the server asked us to back off (429/503); the URL should be retried.
     var retryAfterSeconds: Double?
+    /// Set when the site was still refusing an internal URL after waiting: it wasn't seen, so it's
+    /// listed under Not Crawled with the reason rather than filed as an error.
+    var refused = false
 }
 
 extension ProcessOutcome {
@@ -127,10 +130,22 @@ struct PageProcessor: Sendable {
             response = value
         }
 
-        if response.statusCode == 429 || response.statusCode == 503, attempt < 2 {
-            let seconds = Self.retryAfter(response.headers["retry-after"]) ?? 10
+        // A page on the site that's refused — rate limiting, or bot protection's challenge, as
+        // Cloudflare in front of a Shopify store does in bursts — is waited for, longer each time,
+        // and asked again. Still refused, it's not filed as an error: nothing about the page was
+        // learned, and links to it would all count as broken.
+        let throttled = item.isInternal && LinkCheck.isThrottled(status: response.statusCode, headers: response.headers)
+        let retries = throttled ? Self.backoff.count : (response.statusCode == 429 || response.statusCode == 503) ? 2 : 0
+        if attempt < retries {
+            let seconds = Self.retryAfter(response.headers["retry-after"]) ?? (throttled ? Self.backoff[attempt] : 10)
             await limiter.pause(host: item.host, seconds: seconds)
             outcome.retryAfterSeconds = seconds
+            return outcome
+        }
+        if throttled {
+            outcome.refused = true
+            outcome.result.discovery.state = .skipped
+            outcome.result.discovery.skipReason = LinkCheck.refusalReason(status: response.statusCode)
             return outcome
         }
 
@@ -301,6 +316,10 @@ struct PageProcessor: Sendable {
     }
 
     /// `Retry-After` is either delay-seconds or an HTTP date.
+    /// How long to wait before asking for a refused internal URL again, each time, when the site
+    /// doesn't say: about a minute and a half in all, which outlasts most bursts of rate limiting.
+    static let backoff: [Double] = [10, 30, 60]
+
     static func retryAfter(_ value: String?) -> Double? {
         guard let value = value?.trimmingCharacters(in: .whitespaces), !value.isEmpty else { return nil }
         if let seconds = Double(value) { return seconds }

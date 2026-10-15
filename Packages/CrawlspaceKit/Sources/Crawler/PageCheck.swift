@@ -12,9 +12,10 @@ import Storage
 /// from the pages it's been fixed on, and stays on the rest.
 ///
 /// Only that issue changes. Every other issue in the crawl is left as it was, even where the
-/// pages fetched would now say otherwise: a check answers the one question it was asked. A URL
-/// the site wouldn't answer — it asked to slow down, and still did after waiting — is left as it
-/// was too, rather than filed as broken. Speed isn't measured: that's Lighthouse's.
+/// pages fetched would now say otherwise: a check answers the one question it was asked. A page
+/// the site wouldn't serve — it asked to slow down, or its bot protection challenged the crawler,
+/// and still did after waiting — is left as it was too, rather than filed as broken. Speed isn't
+/// measured: that's Lighthouse's.
 public enum PageCheck {
     public struct Progress: Sendable, Codable, Hashable {
         public var done: Int
@@ -172,8 +173,8 @@ public enum PageCheck {
                                renderedHTML: outcome.renderedHTML, screenshot: outcome.screenshot))
     }
 
-    /// Fetches and processes URLs a few at a time. A server that asks to slow down is waited for
-    /// and asked again, twice; a URL it still won't answer comes back apart, to be left as it was.
+    /// Fetches and processes URLs a few at a time. A site that asks to slow down is waited for and
+    /// asked again; a URL it still won't answer comes back apart, to be left as it was.
     private static func process(_ items: [DiscoveredURL], with processor: PageProcessor, concurrency: Int,
                                 onEach: () -> Void) async -> (answered: [(DiscoveredURL, ProcessOutcome)], unanswered: [DiscoveredURL]) {
         var answered: [(DiscoveredURL, ProcessOutcome)] = []
@@ -183,22 +184,19 @@ public enum PageCheck {
             func startNext() {
                 guard let item = pending.popFirst() else { return }
                 group.addTask {
+                    // The processor waits as the site asks, and stops asking after a few tries.
                     var outcome = await processor.process(item, attempt: 0)
-                    for attempt in 1...2 {
-                        guard let seconds = outcome.retryAfterSeconds else { break }
-                        try? await Task.sleep(for: .seconds(min(seconds, 30)))
+                    var attempt = 0
+                    while outcome.retryAfterSeconds != nil {
+                        attempt += 1
                         outcome = await processor.process(item, attempt: attempt)
-                        // The last try comes back with the refusal as its answer; don't file that.
-                        if attempt == 2, outcome.result.statusCode == 429 || outcome.result.statusCode == 503 {
-                            outcome.retryAfterSeconds = seconds
-                        }
                     }
                     return (item, outcome)
                 }
             }
             for _ in 0..<concurrency { startNext() }
             for await (item, outcome) in group {
-                if outcome.retryAfterSeconds == nil { answered.append((item, outcome)) } else { unanswered.append(item) }
+                if outcome.refused { unanswered.append(item) } else { answered.append((item, outcome)) }
                 onEach()
                 startNext()
             }
