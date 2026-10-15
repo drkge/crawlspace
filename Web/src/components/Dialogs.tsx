@@ -534,9 +534,8 @@ export function ClickUpDialog({ crawlID, onClose }: { crawlID: string; onClose: 
             <legend>What to file, and where</legend>
             {spaceID && lists === null && <p className="hint">Reading the lists in {space?.name}…</p>}
             <p className="hint">
-              ClickUp gets an overview of this crawl: one task per kind of problem, such as Errors › H1: Missing, saying how many there
-              are. The pages themselves are in the crawl, where they're checked once fixed. Exporting a later crawl brings the tasks up
-              to date, and closes those for problems it no longer finds.
+              ClickUp gets this crawl's issues as the app lists them: one task per issue, such as Errors › H1: Missing, with its URLs.
+              Exporting replaces the site's tasks from an earlier export in these lists, so ClickUp shows this crawl and nothing older.
             </p>
             {overviewLists.map((entry) => {
               const target = targets[entry.id] ?? standardTarget(entry)

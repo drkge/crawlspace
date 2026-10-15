@@ -203,11 +203,10 @@ struct MiscRoutes {
                 }
             }
             let places = IssueSeverity.allCases.compactMap { resolved?.paths[$0] }.joined(separator: ", ")
-            var message = "Filed the overview into \(destination.spaceName) (\(places)): \(result.summary)."
+            var message = "Filed into \(destination.spaceName) (\(places)): \(result.summary)."
             if let created = resolved?.created, !created.isEmpty {
                 message += " Made " + ListFormatter.localizedString(byJoining: created) + "."
             }
-            message += " The pages themselves are in Fixes."
             return JSON(MessageDTO(message: message))
         }
     }
@@ -336,8 +335,8 @@ enum ClickUpPlan {
         let lists = IssueSeverity.allCases.compactMap { severity in
             counts[severity].map { "\($0) in \(severity.label)" }
         }
-        var text = "\(total) overview \(total == 1 ? "task" : "tasks"), one per kind of problem: "
-            + ListFormatter.localizedString(byJoining: lists) + ". Each closes by itself once its fixes are verified in Fixes."
+        var text = "\(total) \(total == 1 ? "task" : "tasks"), one per issue, as the crawl lists them: "
+            + ListFormatter.localizedString(byJoining: lists) + ". They replace the site's tasks from an earlier export."
         if let duration = estimate(requests: total + 2 * lists.count) {
             text += " About \(duration) on ClickUp's smallest plan."
         }

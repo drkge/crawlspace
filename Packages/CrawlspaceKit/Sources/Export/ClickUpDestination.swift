@@ -18,42 +18,21 @@ public struct ClickUpExportOptions: Sendable {
 }
 
 public struct ClickUpExportResult: Sendable, Hashable {
+    /// Tasks filed, one per issue.
     public var tasks = 0
-    /// What reconciling with a list that already has these tasks in it did.
-    public var tasksUpdated = 0
-    public var tasksClosed = 0
-    public var tasksReopened = 0
-    /// Copies already in ClickUp from an earlier export — reported, never filed again.
-    public var duplicatesFound = 0
-    /// Open tasks an earlier layout filed, which this export leaves alone.
-    public var legacyTasks = 0
+    /// Tasks an earlier export had filed for the site, removed to make way.
+    public var tasksRemoved = 0
 
     public var summary: String {
-        var parts: [String] = []
-        if tasks > 0 { parts.append("\(tasks.formatted()) new \(tasks == 1 ? "task" : "tasks")") }
-        if tasksUpdated > 0 { parts.append("\(tasksUpdated.formatted()) updated") }
-        if tasksReopened > 0 { parts.append("\(tasksReopened.formatted()) reopened") }
-        if tasksClosed > 0 { parts.append("\(tasksClosed.formatted()) closed") }
-        var summary = parts.isEmpty ? "nothing to change" : parts.joined(separator: ", ")
-        if duplicatesFound > 0 {
-            summary += ". \(duplicatesFound.formatted()) duplicate \(duplicatesFound == 1 ? "task" : "tasks") "
-            summary += "from an earlier export are in the list and worth removing"
-        }
-        if legacyTasks > 0 {
-            summary += ". \(legacyTasks.formatted()) open \(legacyTasks == 1 ? "task" : "tasks") from an earlier "
-            summary += "layout \(legacyTasks == 1 ? "is" : "are") still in the list and no longer updated: worth archiving"
-        }
-        return summary
+        var text = tasks == 0 ? "no issues to file" : "\(tasks.formatted()) \(tasks == 1 ? "task" : "tasks"), one per issue"
+        if tasksRemoved > 0 { text += ", replacing \(tasksRemoved.formatted()) from an earlier export" }
+        return text
     }
 
     /// Adds up the exports into each list.
     mutating func add(_ other: ClickUpExportResult) {
         tasks += other.tasks
-        tasksUpdated += other.tasksUpdated
-        tasksClosed += other.tasksClosed
-        tasksReopened += other.tasksReopened
-        duplicatesFound += other.duplicatesFound
-        legacyTasks += other.legacyTasks
+        tasksRemoved += other.tasksRemoved
     }
 }
 
