@@ -12,6 +12,7 @@ public enum PostCrawlAnalyzer {
             let codes = IssueCatalogue.postCrawlCodes
             let placeholders = Array(repeating: "?", count: codes.count).joined(separator: ",")
             try db.execute(sql: "DELETE FROM issues WHERE code IN (\(placeholders))", arguments: StatementArguments(codes))
+            try db.execute(sql: "DELETE FROM issues_set_aside WHERE code IN (\(placeholders))", arguments: StatementArguments(codes))
 
             try refusals(db)
             try duplicates(db)
@@ -24,6 +25,7 @@ public enum PostCrawlAnalyzer {
             try sitemapAudit(db)
             try NearDuplicateAnalyzer.run(db, indexableHTML: duplicateCandidates)
             try speed(db)
+            try IssueVisibility.apply(db)
 
             try db.execute(
                 sql: "INSERT INTO meta(key, value) VALUES ('analysed_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -48,7 +50,9 @@ public enum PostCrawlAnalyzer {
         try store.pool.write { db in
             let placeholders = Array(repeating: "?", count: speedCodes.count).joined(separator: ",")
             try db.execute(sql: "DELETE FROM issues WHERE code IN (\(placeholders))", arguments: StatementArguments(speedCodes))
+            try db.execute(sql: "DELETE FROM issues_set_aside WHERE code IN (\(placeholders))", arguments: StatementArguments(speedCodes))
             try speed(db)
+            try IssueVisibility.apply(db)
         }
     }
 

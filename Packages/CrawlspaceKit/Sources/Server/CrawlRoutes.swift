@@ -315,12 +315,14 @@ struct CrawlRoutes {
         }) {
             filters["nearDuplicates"] = nearDuplicates
         }
+        let setAside = try store.setAsideCounts()
         return CountsDTO(
             issues: issues, filters: filters,
             extractions: try store.extractionCounts().map { NamedCountDTO(name: $0.name, count: $0.count) },
             searches: try store.searchHitCounts().map { NamedCountDTO(name: $0.name, count: $0.count) },
             hasLighthouse: try store.hasLighthouseData(),
-            overview: try store.overview()
+            overview: try store.overview(),
+            setAside: SetAsideDTO(issues: setAside.issues, pages: setAside.pages)
         )
     }
 }

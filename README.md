@@ -106,6 +106,16 @@ there's no Google account to connect.
 
 Since 2.0: pages checked in place, change patterns, an overview in ClickUp, and a client summary.
 
+A page that can't be indexed lists only why: its status (a redirect, an error, blocked by
+robots.txt), a noindex or nofollow, a mistake in its canonical, and what the sitemap says of it.
+That covers pages canonicalised elsewhere, redirecting, broken or noindexed. Its titles,
+descriptions, headings, images and links don't reach search results, so their issues are set aside.
+So is "Canonicalised" itself, which on a Shopify store is every product's
+`/collections/…/products/…` copy, by design. Set-aside issues are kept in the crawl, but they're out
+of the sidebar, counts, reports, ClickUp and comparisons. The Overview says how many, and a page's
+Issues tab says so too. On McCalls that's 75,619 of 99,377. Crawls saved before are sorted the same
+way when opened.
+
 Issues are grouped as Errors, Warnings and Notices, and, kept apart from them, **Lighthouse** (speed)
 and **Sitemap** (the XML sitemap audit). Those two are measured differently, speed on a sample of
 pages and the sitemap against a file, and worked on separately. So they have their own groups in

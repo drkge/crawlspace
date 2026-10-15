@@ -198,6 +198,8 @@ export interface Counts {
   searches: { name: string; count: number }[]
   hasLighthouse: boolean
   overview: Overview
+  /** Issues set aside on pages that can't be indexed, and how many pages: not in `issues`. */
+  setAside: { issues: number; pages: number }
 }
 
 export interface Column {
@@ -282,6 +284,10 @@ export interface Inspector {
   status: string
   indexability: string
   indexable: boolean
+  /** Why it can't be indexed: "Canonicalised", "Noindex"… */
+  indexabilityReason?: string
+  /** Issues set aside because it can't be indexed: not in `issues`. */
+  setAside: number
   isPage: boolean
   serp?: {
     host: string

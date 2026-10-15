@@ -278,6 +278,19 @@ enum Schema {
             try db.execute(sql: "ALTER TABLE lighthouse_reports ADD COLUMN template TEXT")
         }
 
+        // Issues on pages that can't be indexed, other than why: kept, but out of every list, count
+        // and export. See IssueVisibility.
+        migrator.registerMigration("v8") { db in
+            try db.execute(sql: """
+                CREATE TABLE issues_set_aside (
+                    code TEXT NOT NULL,
+                    url_id INTEGER NOT NULL,
+                    PRIMARY KEY (code, url_id)
+                ) WITHOUT ROWID;
+                CREATE INDEX issues_set_aside_on_url ON issues_set_aside(url_id);
+                """)
+        }
+
         return migrator
     }
 }

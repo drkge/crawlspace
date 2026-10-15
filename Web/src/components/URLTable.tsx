@@ -44,6 +44,11 @@ export default function URLTable(props: {
     setMulti(new Set())
     scroller.current?.scrollTo({ top: 0 })
   }, [crawlID, columnKey])
+  // A new list for the same table — a search, a sort — has different rows on each page, so a page
+  // asked for before isn't loaded now. Rows already here are kept: they're the same rows.
+  useEffect(() => {
+    loading.current.clear()
+  }, [ids])
 
   const virtualizer = useVirtualizer({
     count: ids.length,

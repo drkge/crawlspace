@@ -27,6 +27,7 @@ public enum ClientSummaryBuilder {
         var body = ReportBuilder.header(options: options, config: config, started: started)
         body += headline(problems, pages: overview.internalHTML, site: site)
         if let baseline {
+            try IssueVisibility.apply(store: baseline)
             body += try progress(problems, baseline: baseline, store: store, config: config)
         }
         if !problems.isEmpty {

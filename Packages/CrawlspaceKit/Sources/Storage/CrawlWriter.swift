@@ -14,9 +14,13 @@ public final class CrawlWriter: Sendable {
     private let commitLock = NSLock()
     private let failure = Mutex<(any Error)?>(nil)
     private let autoFlush = Mutex<Task<Void, Never>?>(nil)
+    /// Whether a URL's issue is set aside rather than listed: those on a page that can't be
+    /// indexed, other than why. Nil lists them all.
+    private let setAside: (@Sendable (CrawledURL, String) -> Bool)?
 
-    public init(store: CrawlStore) {
+    public init(store: CrawlStore, setAside: (@Sendable (CrawledURL, String) -> Bool)? = nil) {
         pool = store.pool
+        self.setAside = setAside
     }
 
     deinit {
@@ -61,7 +65,8 @@ public final class CrawlWriter: Sendable {
         }
         guard !operations.isEmpty else { return }
         do {
-            try pool.write { db in try Self.apply(operations, in: db) }
+            let setAside = setAside
+            try pool.write { db in try Self.apply(operations, in: db, setAside: setAside) }
         } catch {
             failure.withLock { if $0 == nil { $0 = error } }
             throw error
@@ -97,7 +102,8 @@ public final class CrawlWriter: Sendable {
         return "INSERT INTO urls (\(crawledColumns.joined(separator: ", "))) VALUES (\(placeholders)) ON CONFLICT(id) DO UPDATE SET \(updates)"
     }()
 
-    static func apply(_ operations: [WriteOperation], in db: Database) throws {
+    static func apply(_ operations: [WriteOperation], in db: Database,
+                      setAside: (@Sendable (CrawledURL, String) -> Bool)? = nil) throws {
         let discover = try db.cachedStatement(sql: """
             INSERT INTO urls (id, url, host, is_internal, depth, state, found_via, resource_type, skip_reason)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING
@@ -106,6 +112,8 @@ public final class CrawlWriter: Sendable {
         let upsert = try db.cachedStatement(sql: upsertCrawledSQL)
         let deleteIssues = try db.cachedStatement(sql: "DELETE FROM issues WHERE url_id = ?")
         let insertIssue = try db.cachedStatement(sql: "INSERT OR IGNORE INTO issues (code, url_id) VALUES (?, ?)")
+        let deleteSetAside = try db.cachedStatement(sql: "DELETE FROM issues_set_aside WHERE url_id = ?")
+        let insertSetAside = try db.cachedStatement(sql: "INSERT OR IGNORE INTO issues_set_aside (code, url_id) VALUES (?, ?)")
         let deleteLinks = try db.cachedStatement(sql: "DELETE FROM links WHERE source_id = ?")
         let insertLink = try db.cachedStatement(sql: "INSERT OR IGNORE INTO links (source_id, target_id, type, flags, text) VALUES (?, ?, ?, ?, ?)")
         let deleteHreflang = try db.cachedStatement(sql: "DELETE FROM hreflang WHERE source_id = ?")
@@ -186,11 +194,12 @@ public final class CrawlWriter: Sendable {
                 }
                 // A URL crawled again — checked — has only what it has now: no links it dropped.
                 try deleteIssues.execute(arguments: [d.id])
+                try deleteSetAside.execute(arguments: [d.id])
                 try deleteLinks.execute(arguments: [d.id])
                 try deleteHreflang.execute(arguments: [d.id])
                 try deleteStructured.execute(arguments: [d.id])
                 for code in issues {
-                    try insertIssue.execute(arguments: [code, d.id])
+                    try (setAside?(c, code) == true ? insertSetAside : insertIssue).execute(arguments: [code, d.id])
                 }
                 for link in links {
                     try insertLink.execute(arguments: [link.sourceID, link.targetID, link.type.rawValue, link.flags.rawValue, link.text])

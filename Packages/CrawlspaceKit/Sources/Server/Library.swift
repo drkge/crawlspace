@@ -1,3 +1,4 @@
+import Audit
 import CrawlCore
 import Crawler
 import Export
@@ -90,6 +91,8 @@ actor Library {
         if let session = sessions[id] { return session }
         let url = try packageURL(for: id)
         let store = try CrawlStore.open(at: url)
+        // A crawl saved before issues on pages that can't be indexed were set aside, sorted now.
+        try? IssueVisibility.apply(store: store)
         let session = try CrawlSession(id: id, packageURL: url, store: store) { [weak self] in
             Task { await self?.activityChanged() }
         }
