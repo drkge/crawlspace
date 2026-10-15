@@ -106,6 +106,13 @@ there's no Google account to connect.
 
 Since 2.0: pages checked in place, change patterns, an overview in ClickUp, and a client summary.
 
+Issues are grouped as Errors, Warnings and Notices, and, kept apart from them, **Lighthouse** (speed)
+and **Sitemap** (the XML sitemap audit). Those two are measured differently, speed on a sample of
+pages and the sitemap against a file, and worked on separately. So they have their own groups in
+the sidebar and on a page's Issues tab, and their own sections in the audit report and client
+summary. They aren't in the errors, warnings and notices counts, and they go to ClickUp only when
+asked for.
+
 Each check says where it comes from, in the inspector's Issues tab and at the top of an issue's
 list. Most link to the document behind them: Google Search Central, the Bing Webmaster Guidelines,
 a web standard (HTML, WCAG, W3C Mixed Content and CSP, HSTS) or Lighthouse. A few are labelled
@@ -204,6 +211,9 @@ Pixels*. Each says how many URLs have it, what's wrong and how to fix it, lists 
 hundred, most linked-to first) and links to them all in the crawl in Crawlspace, where pages are
 checked once fixed. Priority comes from the severity: errors Urgent, warnings High, notices Low.
 
+Lighthouse and Sitemap issues are left out unless you tick them. Ticked, each goes in a list of its
+own, *Crawlspace › Lighthouse* and *Crawlspace › Sitemap*; left out, those lists aren't touched.
+
 Each export replaces the last: every task an earlier export filed for the site in those lists —
 tagged `crawlspace` and the site — is deleted (ClickUp keeps deleted tasks in its Trash for a
 while), and the crawl's issues are filed afresh. ClickUp changes only when you export.
@@ -223,7 +233,7 @@ crawlspace clickup audit.crawlspace --space 90120001 --severities error,warning
 ```
 
 `--space` files into the Crawlspace folder's lists, as the app does; `--list` puts everything in one
-list. The token comes from `CLICKUP_TOKEN` or the saved token rather than a flag, so it stays out of
+list. `--severities` also takes `lighthouse` and `sitemap`. The token comes from `CLICKUP_TOKEN` or the saved token rather than a flag, so it stays out of
 shell history.
 
 Tasks are found by their tags, so an export from a different Mac replaces them too, and tasks from

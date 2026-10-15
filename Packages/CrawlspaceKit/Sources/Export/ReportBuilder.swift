@@ -45,7 +45,7 @@ public enum ReportBuilder {
                 let count = issueCounts[definition.code] ?? 0
                 return count > 0 ? (definition, count) : nil
             }
-            .sorted { ($0.0.severity, -$0.1) < ($1.0.severity, -$1.1) }
+            .sorted { ($0.0.group, -$0.1) < ($1.0.group, -$1.1) }
 
         var body = ""
         body += header(options: options, config: config, started: started)
@@ -80,8 +80,9 @@ public enum ReportBuilder {
     }
 
     private static func summary(overview: OverviewStats, issues: [(IssueDefinition, Int)]) -> String {
-        func total(_ severity: IssueSeverity) -> Int {
-            issues.filter { $0.0.severity == severity }.reduce(0) { $0 + $1.1 }
+        // The pages' own issues: Lighthouse and Sitemap have their sections, apart.
+        func total(_ group: IssueGroup) -> Int {
+            issues.filter { $0.0.group == group }.reduce(0) { $0 + $1.1 }
         }
         let tiles: [(String, String, String)] = [
             ("URLs crawled", overview.crawled.formatted(), "\(overview.internalHTML.formatted()) internal HTML"),
@@ -201,11 +202,16 @@ public enum ReportBuilder {
         }
 
         var html = "<section><h2>Issues found</h2>"
-        for severity in IssueSeverity.allCases {
-            let group = issues.filter { $0.0.severity == severity }
-            guard !group.isEmpty else { continue }
-            html += "<h3 class=\"severity \(severity.cssClass)\">\(escape(severity.label))</h3>"
-            for (definition, count) in group {
+        for group in IssueGroup.allCases {
+            let found = issues.filter { $0.0.group == group }
+            guard !found.isEmpty else { continue }
+            // Lighthouse and Sitemap come after the errors, warnings and notices, as sections of their own.
+            if group == .lighthouse || (group == .sitemap && !issues.contains { $0.0.group == .lighthouse }) {
+                html += "</section><section><h2>Speed and sitemap</h2><p class=\"muted\">Measured apart from the pages' "
+                    + "issues: speed by Lighthouse on a sample of pages, and the XML sitemap against the pages crawled.</p>"
+            }
+            html += "<h3 class=\"severity \(group.cssClass)\">\(escape(group.label))</h3>"
+            for (definition, count) in found {
                 let found = fixes[definition.code] ?? []
                 let items: [String]
                 if found.isEmpty {
@@ -220,7 +226,7 @@ public enum ReportBuilder {
                 html += """
                 <div class="issue">
                   <div class="issue-head">
-                    <span class="badge \(severity.cssClass)">\(total.formatted())</span>
+                    <span class="badge \(definition.severity.cssClass)">\(total.formatted())</span>
                     <strong>\(escape(definition.category.rawValue)): \(escape(definition.title))</strong>\(pages)
                   </div>
                   <p>\(escape(definition.description))</p>
@@ -315,6 +321,7 @@ public enum ReportBuilder {
           .badge.warning { background: #FDF0DC; color: #8A5200; }
           .badge.notice { background: #EEF1F6; color: #46506B; }
           .severity.error { color: #A3281E; } .severity.warning { color: #8A5200; } .severity.notice { color: #46506B; }
+          .severity.lighthouse { color: #B35A00; } .severity.sitemap { color: #46506B; }
           .examples { margin: 6px 0 0; padding-left: 18px; color: var(--muted); word-break: break-all; }
           .examples a { color: var(--ink); text-decoration: none; }
           .examples .examples { margin-top: 2px; }
@@ -350,6 +357,10 @@ extension IssueSeverity {
     }
 }
 
-private func < (lhs: (IssueSeverity, Int), rhs: (IssueSeverity, Int)) -> Bool {
+extension IssueGroup {
+    var cssClass: String { rawValue }
+}
+
+private func < (lhs: (IssueGroup, Int), rhs: (IssueGroup, Int)) -> Bool {
     lhs.0 != rhs.0 ? lhs.0 < rhs.0 : lhs.1 < rhs.1
 }

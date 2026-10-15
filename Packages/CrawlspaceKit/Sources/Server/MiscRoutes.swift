@@ -180,19 +180,19 @@ struct MiscRoutes {
             let body = try await request.decodeJSON(ClickUpRequest.self, context: context)
             let destination = body.destination
             guard !destination.spaceID.isEmpty else { throw ServerError.badRequest("Choose a space to file into.") }
-            let severities = Settings.severities(body.severities)
-            for severity in IssueSeverity.allCases where severities.contains(severity)
-                && destination.target(for: severity).listName.trimmingCharacters(in: .whitespaces).isEmpty {
-                throw ServerError.badRequest("Give \(severity.label) a list to go into.")
+            let groups = Settings.groups(body.groups)
+            for group in IssueGroup.allCases where groups.contains(group)
+                && destination.target(for: group).listName.trimmingCharacters(in: .whitespaces).isEmpty {
+                throw ServerError.badRequest("Give \(group.label) a list to go into.")
             }
             let client = try clickUp()
             let session = try await library.session(context.parameters.string("id"))
             let site = Self.site(of: try session.store.loadConfig())
             _ = try SettingsStore.update {
                 $0.clickUpDestinations[site] = destination
-                $0.clickUpSeverities = body.severities
+                $0.clickUpGroups = body.groups
             }
-            let options = ClickUpExportOptions(listID: "", severities: severities,
+            let options = ClickUpExportOptions(listID: "", groups: groups,
                                                extraTags: body.extraTag.isEmpty ? [] : [body.extraTag])
             let store = session.store
             let events = session.events
@@ -202,7 +202,7 @@ struct MiscRoutes {
                     events.publish("clickup", ClickUpProgress(title: title, fraction: fraction))
                 }
             }
-            let places = IssueSeverity.allCases.compactMap { resolved?.paths[$0] }.joined(separator: ", ")
+            let places = IssueGroup.allCases.compactMap { resolved?.paths[$0] }.joined(separator: ", ")
             var message = "Filed into \(destination.spaceName) (\(places)): \(result.summary)."
             if let created = resolved?.created, !created.isEmpty {
                 message += " Made " + ListFormatter.localizedString(byJoining: created) + "."
@@ -321,7 +321,8 @@ struct MiscRoutes {
 /// What the ClickUp panel sends: where to file, and what.
 struct ClickUpRequest: Decodable, Sendable {
     var destination: ClickUpDestination
-    var severities: [String]
+    /// "error", "warning", "notice", "lighthouse", "sitemap".
+    var groups: [String]
     var extraTag: String
 }
 
@@ -329,11 +330,11 @@ struct ClickUpRequest: Decodable, Sendable {
 /// finds out afterwards. The same tasks the exporter files, worked out the same way.
 enum ClickUpPlan {
     static func describe(store: CrawlStore, request: ClickUpRequest) throws -> String {
-        let counts = try ClickUpOverview.preview(store: store, severities: Settings.severities(request.severities))
+        let counts = try ClickUpOverview.preview(store: store, groups: Settings.groups(request.groups))
         let total = counts.values.reduce(0, +)
-        guard total > 0 else { return "Nothing to file at these severities." }
-        let lists = IssueSeverity.allCases.compactMap { severity in
-            counts[severity].map { "\($0) in \(severity.label)" }
+        guard total > 0 else { return "Nothing to file in these lists." }
+        let lists = IssueGroup.allCases.compactMap { group in
+            counts[group].map { "\($0) in \(group.label)" }
         }
         var text = "\(total) \(total == 1 ? "task" : "tasks"), one per issue, as the crawl lists them: "
             + ListFormatter.localizedString(byJoining: lists) + ". They replace the site's tasks from an earlier export."

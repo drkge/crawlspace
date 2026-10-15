@@ -277,12 +277,12 @@ struct Summary: AsyncParsableCommand {
           Avg response     \(overview.averageResponseMs.map { String(format: "%.0f ms", $0) } ?? "—")
         """)
 
-        for severity in IssueSeverity.allCases {
+        for group in IssueGroup.allCases {
             let rows = IssueCatalogue.all
-                .filter { $0.severity == severity && (issues[$0.code] ?? 0) > 0 }
+                .filter { $0.group == group && (issues[$0.code] ?? 0) > 0 }
                 .sorted { (issues[$0.code] ?? 0) > (issues[$1.code] ?? 0) }
             guard !rows.isEmpty else { continue }
-            Swift.print("\n  \(severity.label.uppercased())")
+            Swift.print("\n  \(group.label.uppercased())")
             for definition in rows {
                 let count = issues[definition.code] ?? 0
                 Swift.print("    \(String(count).padding(toLength: 7, withPad: " ", startingAt: 0)) \(definition.category.rawValue): \(definition.title)")
@@ -569,35 +569,35 @@ struct ClickUpExport: AsyncParsableCommand {
         abstract: "File an overview of a crawl's issues into ClickUp: one task per kind of problem.",
         discussion: """
             The pages themselves are in the crawl, in the app. With --space, each severity goes into \
-            its own list in a Crawlspace folder, made if it isn't there. With --list, everything goes \
-            into that one list.
+            its own list in a Crawlspace folder, made if it isn't there, and so do Lighthouse and \
+            Sitemap when asked for. With --list, everything goes into that one list.
             """
     )
 
     @Argument(help: "Path to a .crawlspace package.") var package: String
     @Option(help: "List id to file everything into. Find one with clickup-lists.") var list: String?
     @Option(help: "Space id to file into, a list per severity in its Crawlspace folder.") var space: String?
-    @Option(help: "Which severities to export: error, warning, notice (comma separated).")
+    @Option(help: "What to export: error, warning, notice, and lighthouse and sitemap, kept apart (comma separated).")
     var severities: String = "error,warning"
     @Option(help: "Extra tag to put on every task. Repeatable.") var tag: [String] = []
     @OptionGroup var clickUp: ClickUpOptions
 
     mutating func run() async throws {
         let wanted = severities.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
-        let chosen = Set(IssueSeverity.allCases.filter { wanted.contains($0.name) })
+        let chosen = Set(IssueGroup.allCases.filter { wanted.contains($0.rawValue) })
         guard !chosen.isEmpty else {
-            throw ValidationError("--severities takes any of error, warning, notice.")
+            throw ValidationError("--severities takes any of error, warning, notice, lighthouse, sitemap.")
         }
         guard (list == nil) != (space == nil) else { throw ValidationError("Give either --list or --space.") }
 
         let store = try CrawlStore.open(at: URL(filePath: package))
-        let options = ClickUpExportOptions(listID: list ?? "", severities: chosen, extraTags: tag)
+        let options = ClickUpExportOptions(listID: list ?? "", groups: chosen, extraTags: tag)
         let destination = space.map { ClickUpDestination(spaceID: $0, spaceName: "space \($0)") }
         let (result, resolved) = try await ClickUpOverview.export(store: store, destination: destination, options: options,
                                                                   client: try clickUp.client()) { title, _ in
             print("  \(title)")
         }
-        let places = resolved.map { found in IssueSeverity.allCases.compactMap { found.paths[$0] }.joined(separator: ", ") }
+        let places = resolved.map { found in IssueGroup.allCases.compactMap { found.paths[$0] }.joined(separator: ", ") }
             ?? "list \(list ?? "")"
         print("Filed into \(places): \(result.summary).")
     }

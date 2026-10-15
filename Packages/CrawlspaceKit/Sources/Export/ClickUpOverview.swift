@@ -5,8 +5,8 @@ import Integrations
 import Storage
 
 /// What goes into ClickUp: the crawl's issues as the app lists them — one task per issue, in the
-/// Errors, Warnings or Notices list for its severity — each saying what's wrong, how to fix it and
-/// which URLs have it. An export replaces what an earlier one filed for the site, so ClickUp shows
+/// Errors, Warnings or Notices list for its severity, or when asked, the Lighthouse or Sitemap
+/// list — each saying what's wrong, how to fix it and which URLs have it. An export replaces what an earlier one filed for the site, so ClickUp shows
 /// the crawl exported and nothing older.
 public enum ClickUpOverview {
     /// One issue, as the app's sidebar lists it.
@@ -15,19 +15,21 @@ public enum ClickUpOverview {
         /// "Response Codes: Internal Client Error (4xx)".
         public var title: String
         public var severity: IssueSeverity
+        /// Errors, Warnings or Notices by severity, or Lighthouse or Sitemap.
+        public var group: IssueGroup
         /// URLs with the issue.
         public var total = 0
     }
 
-    /// The crawl's issues, as the app's sidebar lists them: worst first, then most URLs.
+    /// The crawl's issues, as the app's sidebar lists them: by group, then most URLs.
     public static func kinds(store: CrawlStore) throws -> [Kind] {
         let counts = try store.issueCounts()
         return IssueCatalogue.all.compactMap { definition -> Kind? in
             guard let count = counts[definition.code], count > 0 else { return nil }
             return Kind(code: definition.code, title: "\(definition.category.rawValue): \(definition.title)",
-                        severity: definition.severity, total: count)
+                        severity: definition.severity, group: definition.group, total: count)
         }.sorted { a, b in
-            if a.severity != b.severity { return a.severity < b.severity }
+            if a.group != b.group { return a.group < b.group }
             if a.total != b.total { return a.total > b.total }
             return a.title < b.title
         }
@@ -74,7 +76,7 @@ public enum ClickUpOverview {
                               client: ClickUpClient, appAddress: String = "http://localhost:7777",
                               progress: (@Sendable (String, Double) -> Void)? = nil) async throws -> (ClickUpExportResult, ClickUpFolderExport.Resolved?) {
         progress?("Reading the issues…", 0)
-        let kinds = try kinds(store: store).filter { options.severities.contains($0.severity) }
+        let kinds = try kinds(store: store).filter { options.groups.contains($0.group) }
         let crawl = Crawl(name: store.packageURL.deletingPathExtension().lastPathComponent,
                           host: CrawlScope(config: try store.loadConfig()).startHost, appAddress: appAddress)
         var urls: [String: [String]] = [:]
@@ -87,12 +89,12 @@ public enum ClickUpOverview {
         var resolved: ClickUpFolderExport.Resolved?
         if let destination {
             progress?("Finding the lists in \(destination.spaceName)…", 0)
-            let found = try await ClickUpFolderExport.resolve(destination, severities: options.severities, client: client)
+            let found = try await ClickUpFolderExport.resolve(destination, groups: options.groups, client: client)
             resolved = found
             // Every list, even one with nothing in it this time: what an earlier export put there goes.
             for list in found.lists.values { lists[list] = [] }
             for kind in kinds {
-                guard let list = found.lists[kind.severity] else { continue }
+                guard let list = found.lists[kind.group] else { continue }
                 lists[list, default: []].append(kind)
             }
         } else {
@@ -131,7 +133,7 @@ public enum ClickUpOverview {
 
         for (index, kind) in kinds.enumerated() {
             progress?(kind.title, Double(index) / Double(max(1, kinds.count)))
-            var tags = ["crawlspace", siteTag, ClickUpOverview.tagSlug(kind.severity.label)]
+            var tags = ["crawlspace", siteTag, ClickUpOverview.tagSlug(kind.group.label)]
             if IssueCatalogue.definition(for: kind.code)?.category == .ecommerce { tags.append("e-commerce") }
             tags.append(contentsOf: options.extraTags)
             try await client.createTask(listID: listID, .init(
@@ -143,11 +145,11 @@ public enum ClickUpOverview {
         return result
     }
 
-    /// How many tasks an export of a crawl would come to, by severity: for the export panel to say
+    /// How many tasks an export of a crawl would come to, by group: for the export panel to say
     /// before it files anything.
-    public static func preview(store: CrawlStore, severities: Set<IssueSeverity>) throws -> [IssueSeverity: Int] {
-        var counts: [IssueSeverity: Int] = [:]
-        for kind in try kinds(store: store) where severities.contains(kind.severity) { counts[kind.severity, default: 0] += 1 }
+    public static func preview(store: CrawlStore, groups: Set<IssueGroup>) throws -> [IssueGroup: Int] {
+        var counts: [IssueGroup: Int] = [:]
+        for kind in try kinds(store: store) where groups.contains(kind.group) { counts[kind.group, default: 0] += 1 }
         return counts
     }
 

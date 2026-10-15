@@ -18,14 +18,20 @@ const reports: [string, string][] = [
   ['filter:nearDuplicates', 'Near Duplicates'],
 ]
 
-const severities = [
+/** The sidebar's groups: issues by severity, then Lighthouse and Sitemap, kept apart from them. */
+const groups = [
   ['error', 'Errors'],
   ['warning', 'Warnings'],
   ['notice', 'Notices'],
+  ['lighthouse', 'Lighthouse'],
+  ['sitemap', 'Sitemap'],
 ] as const
 
+/** An issue of the crawl's pages, rather than Lighthouse or the sitemap. */
+export const isPageIssue = (issue: { group: string }) => issue.group === 'error' || issue.group === 'warning' || issue.group === 'notice'
+
 /**
- * Overview, the page tables, every issue found by severity, custom extraction
+ * Overview, the page tables, every issue found by severity and then Lighthouse and Sitemap, custom extraction
  * and the reports.
  */
 export function Sidebar(props: {
@@ -51,14 +57,14 @@ export function Sidebar(props: {
       {item('overview', 'Overview')}
       <h3>All pages</h3>
       {pageFilters.map(([key, label]) => item(key, label, counts?.filters[key.slice(7)]))}
-      {severities.map(([severity, title]) => {
-        const issues = counts?.issues.filter((entry) => entry.issue.severity === severity) ?? []
+      {groups.map(([group, title]) => {
+        const issues = counts?.issues.filter((entry) => entry.issue.group === group) ?? []
         if (!issues.length) return null
         return (
-          <div key={severity}>
+          <div key={group}>
             <h3>{title}</h3>
             {issues.map(({ issue, count }) =>
-              item(`issue:${issue.code}`, `${issue.category}: ${issue.title}`, count, <Severity severity={severity} />),
+              item(`issue:${issue.code}`, `${issue.category}: ${issue.title}`, count, <Severity severity={issue.severity} />),
             )}
           </div>
         )
@@ -143,11 +149,13 @@ export function Overview(props: {
   if (!counts) return <div className="empty">Loading…</div>
   const overview = counts.overview
   const bySeverity = (severity: string) =>
-    counts.issues.filter((entry) => entry.issue.severity === severity).reduce((sum, entry) => sum + entry.count, 0)
-  const biggest = [...counts.issues]
-    .sort((a, b) => ['error', 'warning', 'notice'].indexOf(a.issue.severity) - ['error', 'warning', 'notice'].indexOf(b.issue.severity) || b.count - a.count)
+    counts.issues.filter((entry) => entry.issue.group === severity).reduce((sum, entry) => sum + entry.count, 0)
+  // The pages' own issues: Lighthouse has its card below, and the sitemap its group in the sidebar.
+  const biggest = counts.issues
+    .filter((entry) => isPageIssue(entry.issue))
+    .sort((a, b) => ['error', 'warning', 'notice'].indexOf(a.issue.group) - ['error', 'warning', 'notice'].indexOf(b.issue.group) || b.count - a.count)
     .slice(0, 10)
-  const speedIssues = counts.issues.filter((entry) => entry.issue.category === 'Speed')
+  const speedIssues = counts.issues.filter((entry) => entry.issue.group === 'lighthouse')
   const lighthouse = state.lighthouse
 
   return (

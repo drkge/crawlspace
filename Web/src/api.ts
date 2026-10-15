@@ -1,6 +1,8 @@
 // The server's JSON, and small helpers for calling it. Shapes match Sources/Server/DTO.swift.
 
 export type Severity = 'error' | 'warning' | 'notice'
+/** How issues are grouped: by severity, and Lighthouse and Sitemap apart from them. */
+export type IssueGroup = Severity | 'lighthouse' | 'sitemap'
 export type CrawlStatus = 'new' | 'running' | 'paused' | 'stopped' | 'completed'
 export type Device = 'mobile' | 'desktop'
 
@@ -161,6 +163,7 @@ export interface Issue {
   code: string
   category: string
   severity: Severity
+  group: IssueGroup
   title: string
   description: string
   howToFix: string
@@ -358,7 +361,7 @@ export interface About {
 }
 
 export interface Settings {
-  clickUpSeverities: Severity[]
+  clickUpGroups: IssueGroup[]
   automaticUpdates: boolean
   /** Who every client summary is prepared by. */
   reportPreparedBy: string

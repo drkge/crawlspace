@@ -25,6 +25,39 @@ public enum IssueSeverity: Int, Sendable, CaseIterable, Comparable, Codable {
     public static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
 }
 
+/// How issues are grouped in the app, the reports and ClickUp: the errors, warnings and notices,
+/// and apart from them, speed from Lighthouse and the XML sitemap audit. Those are measured
+/// differently — speed on a sample of pages, the sitemap against a file — and worked on
+/// separately, so they're kept out of the counts of what's wrong with the pages.
+public enum IssueGroup: String, Sendable, CaseIterable, Codable, Comparable {
+    case error, warning, notice, lighthouse, sitemap
+
+    public init(_ severity: IssueSeverity) {
+        switch severity {
+        case .error: self = .error
+        case .warning: self = .warning
+        case .notice: self = .notice
+        }
+    }
+
+    public var label: String {
+        switch self {
+        case .error: "Errors"
+        case .warning: "Warnings"
+        case .notice: "Notices"
+        case .lighthouse: "Lighthouse"
+        case .sitemap: "Sitemap"
+        }
+    }
+
+    /// Lighthouse and Sitemap: kept apart from the errors, warnings and notices.
+    public var isApart: Bool { self == .lighthouse || self == .sitemap }
+
+    public static func < (lhs: Self, rhs: Self) -> Bool {
+        allCases.firstIndex(of: lhs)! < allCases.firstIndex(of: rhs)!
+    }
+}
+
 public enum IssueCategory: String, Sendable, CaseIterable, Codable {
     case responseCodes = "Response Codes"
     case links = "Links"
@@ -61,6 +94,15 @@ public struct IssueDefinition: Sendable, Identifiable, Hashable {
     public let sources: [IssueSource]
 
     public var id: String { code }
+
+    /// Lighthouse for speed, Sitemap for the sitemap audit, and otherwise its severity's.
+    public var group: IssueGroup {
+        switch category {
+        case .speed: .lighthouse
+        case .sitemaps: .sitemap
+        default: IssueGroup(severity)
+        }
+    }
 
     /// Columns for a table of URLs with this issue.
     public var tableColumns: [URLColumn] {

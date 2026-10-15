@@ -5,14 +5,16 @@ import Integrations
 /// What an overview export files, and where. The overview itself is `ClickUpOverview`; the detail it
 /// leaves out is in the crawl.
 public struct ClickUpExportOptions: Sendable {
-    /// Where everything goes without a destination: one list for all three severities.
+    /// Where everything goes without a destination: one list for every group.
     public var listID: String
-    public var severities: Set<IssueSeverity>
+    /// Which to file: errors, warnings and notices by severity, and Lighthouse and Sitemap, which
+    /// are kept apart and filed only when asked.
+    public var groups: Set<IssueGroup>
     public var extraTags: [String]
 
-    public init(listID: String, severities: Set<IssueSeverity> = [.error, .warning], extraTags: [String] = []) {
+    public init(listID: String, groups: Set<IssueGroup> = [.error, .warning], extraTags: [String] = []) {
         self.listID = listID
-        self.severities = severities
+        self.groups = groups
         self.extraTags = extraTags
     }
 }
@@ -36,7 +38,7 @@ public struct ClickUpExportResult: Sendable, Hashable {
     }
 }
 
-/// The list one severity's tasks go into: a list that's there (by id), or one to find or make by
+/// The list one group's tasks go into: a list that's there (by id), or one to find or make by
 /// name, in a folder or directly in the space.
 public struct ClickUpListTarget: Codable, Sendable, Hashable {
     /// Set when it's a list that exists; nil to find or make it by name.
@@ -54,48 +56,48 @@ public struct ClickUpListTarget: Codable, Sendable, Hashable {
     /// "Crawlspace › Errors", as the export window and messages show it.
     public var path: String { [folderName, listName].compactMap { $0 }.joined(separator: " › ") }
 
-    /// The usual place for a severity: Crawlspace › Errors, Warnings or Notices.
-    public static func standard(for severity: IssueSeverity) -> ClickUpListTarget {
-        ClickUpListTarget(folderName: "Crawlspace", listName: severity.label)
+    /// The usual place for a group: Crawlspace › Errors, Warnings, Notices, Lighthouse or Sitemap.
+    public static func standard(for group: IssueGroup) -> ClickUpListTarget {
+        ClickUpListTarget(folderName: "Crawlspace", listName: group.label)
     }
 }
 
-/// Where a site's overview goes: a ClickUp space, and a list in it for each severity.
+/// Where a site's overview goes: a ClickUp space, and a list in it for each group.
 public struct ClickUpDestination: Codable, Sendable, Hashable {
     public var spaceID: String
     public var spaceName: String
-    /// By severity, as "errors", "warnings" and "notices".
+    /// By group, as "errors", "warnings", "notices", "lighthouse" and "sitemap".
     public var targets: [String: ClickUpListTarget]
 
-    public init(spaceID: String, spaceName: String, targets: [IssueSeverity: ClickUpListTarget] = [:]) {
+    public init(spaceID: String, spaceName: String, targets: [IssueGroup: ClickUpListTarget] = [:]) {
         self.spaceID = spaceID
         self.spaceName = spaceName
         self.targets = Dictionary(uniqueKeysWithValues: targets.map { (Self.key(for: $0.key), $0.value) })
     }
 
-    /// How a severity's list is saved: "errors", "warnings", "notices".
-    public static func key(for severity: IssueSeverity) -> String { severity.label.lowercased() }
+    /// How a group's list is saved: "errors", "warnings", "notices", "lighthouse", "sitemap".
+    public static func key(for group: IssueGroup) -> String { group.label.lowercased() }
 
     private enum CodingKeys: String, CodingKey { case spaceID, spaceName, targets, folderName }
 
     /// Reads every earlier shape: a single folder for all three severities (1.x); lists saved by
     /// "error", "warning", "notice"; and lists saved for every kind of list, of which only the
-    /// three severities are still used.
+    /// groups are still used.
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         spaceID = try c.decode(String.self, forKey: .spaceID)
         spaceName = try c.decodeIfPresent(String.self, forKey: .spaceName) ?? ""
-        let names = Dictionary(uniqueKeysWithValues: IssueSeverity.allCases.map { ($0.name, Self.key(for: $0)) })
+        let names = Dictionary(uniqueKeysWithValues: IssueGroup.allCases.map { ($0.rawValue, Self.key(for: $0)) })
         if let saved = try c.decodeIfPresent([String: ClickUpListTarget].self, forKey: .targets) {
             var targets: [String: ClickUpListTarget] = [:]
             for (key, target) in saved {
-                let severity = names[key] ?? key
-                if names.values.contains(severity) { targets[severity] = target }
+                let group = names[key] ?? key
+                if names.values.contains(group) { targets[group] = target }
             }
             self.targets = targets
         } else {
             let folder = try c.decodeIfPresent(String.self, forKey: .folderName) ?? "Crawlspace"
-            targets = Dictionary(uniqueKeysWithValues: IssueSeverity.allCases.map {
+            targets = Dictionary(uniqueKeysWithValues: IssueSeverity.allCases.map(IssueGroup.init).map {
                 (Self.key(for: $0), ClickUpListTarget(folderName: folder, listName: $0.label))
             })
         }
@@ -108,25 +110,25 @@ public struct ClickUpDestination: Codable, Sendable, Hashable {
         try c.encode(targets, forKey: .targets)
     }
 
-    public func target(for severity: IssueSeverity) -> ClickUpListTarget {
-        targets[Self.key(for: severity)] ?? .standard(for: severity)
+    public func target(for group: IssueGroup) -> ClickUpListTarget {
+        targets[Self.key(for: group)] ?? .standard(for: group)
     }
 }
 
-/// Finds the list for each severity in a destination, by id or by name, making any folder or list
+/// Finds the list for each group in a destination, by id or by name, making any folder or list
 /// that isn't there yet.
 public enum ClickUpFolderExport {
     public struct Resolved: Sendable {
-        public var lists: [IssueSeverity: String]
-        /// Where each severity went, for the result message.
-        public var paths: [IssueSeverity: String]
+        public var lists: [IssueGroup: String]
+        /// Where each group went, for the result message.
+        public var paths: [IssueGroup: String]
         /// What had to be made: "the Crawlspace folder", "the Crawlspace › Errors list".
         public var created: [String]
     }
 
-    /// The list for each severity, made where it doesn't exist. Names match regardless of case, so
+    /// The list for each group, made where it doesn't exist. Names match regardless of case, so
     /// a list someone made as "errors" is used rather than doubled.
-    public static func resolve(_ destination: ClickUpDestination, severities: Set<IssueSeverity>,
+    public static func resolve(_ destination: ClickUpDestination, groups: Set<IssueGroup>,
                                client: ClickUpClient) async throws -> Resolved {
         var created: [String] = []
         var folders = try await client.folders(space: destination.spaceID)
@@ -142,11 +144,11 @@ public enum ClickUpFolderExport {
             return found
         }
 
-        var ids: [IssueSeverity: String] = [:]
-        var paths: [IssueSeverity: String] = [:]
-        for severity in IssueSeverity.allCases where severities.contains(severity) {
-            let target = destination.target(for: severity)
-            paths[severity] = target.path
+        var ids: [IssueGroup: String] = [:]
+        var paths: [IssueGroup: String] = [:]
+        for group in IssueGroup.allCases where groups.contains(group) {
+            let target = destination.target(for: group)
+            paths[group] = target.path
 
             // A list chosen by id that's still there.
             if let id = target.listID {
@@ -154,7 +156,7 @@ public enum ClickUpFolderExport {
                 var all = spaceLists ?? []
                 for folder in folders { all += try await lists(in: folder) }
                 if all.contains(where: { $0.id == id }) {
-                    ids[severity] = id
+                    ids[group] = id
                     continue
                 }
             }
@@ -170,21 +172,21 @@ public enum ClickUpFolderExport {
                     created.append("the \(folderName) folder")
                 }
                 if let list = try await lists(in: folder).first(where: { same($0.name, target.listName) }) {
-                    ids[severity] = list.id
+                    ids[group] = list.id
                 } else {
                     let list = try await client.createList(folder: folder.id, name: target.listName)
                     folderLists[folder.id, default: []].append(list)
-                    ids[severity] = list.id
+                    ids[group] = list.id
                     created.append("the \(target.path) list")
                 }
             } else {
                 if spaceLists == nil { spaceLists = try await client.lists(space: destination.spaceID) }
                 if let list = spaceLists?.first(where: { same($0.name, target.listName) }) {
-                    ids[severity] = list.id
+                    ids[group] = list.id
                 } else {
                     let list = try await client.createList(space: destination.spaceID, name: target.listName)
                     spaceLists?.append(list)
-                    ids[severity] = list.id
+                    ids[group] = list.id
                     created.append("the \(target.listName) list")
                 }
             }

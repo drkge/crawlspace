@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api, crawlPath, type Inspector as InspectorData, type Issue, type LighthouseRun, type LinkRow } from '../api'
 import { isNofollow, linkPositions, linkTypes, number, relativeDate, useStoredState } from '../hooks'
 import { ScoreGauge, Severity, Sources, messageOf, useToast } from '../ui'
+import { isPageIssue } from './CrawlParts'
 
 type Tab = 'details' | 'issues' | 'links' | 'speed' | 'source'
 
@@ -41,6 +42,8 @@ export default function Inspector(props: {
   if (error) return <div className="empty error-text">{error}</div>
   if (!data) return <div className="empty">Loading…</div>
 
+  // Lighthouse and Sitemap are shown on the tab, apart, but not counted as the page's issues.
+  const pageIssues = data.issues.filter(({ issue }) => isPageIssue(issue)).length
   const statusClass = !data.statusCode ? 'bad' : data.statusCode >= 400 ? 'bad' : data.statusCode >= 300 ? 'warn' : 'ok'
   return (
     <>
@@ -58,7 +61,7 @@ export default function Inspector(props: {
       <div className="tabs" role="tablist">
         {(['details', 'issues', 'links', 'speed', 'source'] as const).map((name) => (
           <button key={name} className={tab === name ? 'on' : ''} onClick={() => setTab(name)}>
-            {name === 'issues' ? `Issues ${data.issues.length ? `(${data.issues.length})` : ''}` : name[0].toUpperCase() + name.slice(1)}
+            {name === 'issues' ? `Issues ${pageIssues ? `(${pageIssues})` : ''}` : name[0].toUpperCase() + name.slice(1)}
           </button>
         ))}
       </div>
@@ -189,63 +192,78 @@ function Issues({
   onSelectURL: (url: string) => void
 }) {
   if (!data.issues.length) return <p className="hint">No issues on this URL.</p>
+  // The page's own issues first, then Lighthouse and Sitemap under their own headings.
+  const sections: [string, typeof data.issues][] = [
+    ['', data.issues.filter(({ issue }) => isPageIssue(issue))],
+    ['Lighthouse', data.issues.filter(({ issue }) => issue.group === 'lighthouse')],
+    ['Sitemap', data.issues.filter(({ issue }) => issue.group === 'sitemap')],
+  ]
+  const card = ({ issue, evidence }: (typeof data.issues)[number]) => (
+    <div className="issue-card" key={issue.code}>
+      <div className="head">
+        <Severity severity={issue.severity} />
+        <span>
+          {issue.category}: {issue.title}
+        </span>
+        <span className="spacer" />
+        {/* Speed is measured again with Lighthouse, not a check. */}
+        {!issue.code.startsWith('lh_') && (
+          <button
+            className="small"
+            disabled={checkDisabled}
+            title="Fetch the page again to see whether this issue is resolved. Only this issue changes."
+            onClick={() => onCheck(issue)}
+          >
+            Check
+          </button>
+        )}
+      </div>
+      <Sources sources={issue.sources} />
+      <div className="hint">{issue.description}</div>
+      {evidence && evidence.items.length > 0 && (
+        <ul className="evidence">
+          {evidence.items.map((item, index) => (
+            <li key={index}>
+              {item.url ? (
+                <a
+                  href={item.url}
+                  onClick={(event) => {
+                    event.preventDefault()
+                    onSelectURL(item.url!)
+                  }}
+                >
+                  {item.text}
+                </a>
+              ) : (
+                item.text
+              )}
+              {item.position !== undefined && item.position > 0 && <span className="chip" style={{ marginLeft: 6 }}>{linkPositions[item.position]}</span>}
+              {!!item.pagesWithSameLink && item.pagesWithSameLink > 1 && (
+                <span className="hint"> · on {number(item.pagesWithSameLink)} pages</span>
+              )}
+            </li>
+          ))}
+          {evidence.more > 0 && <li className="hint">…and {number(evidence.more)} more</li>}
+        </ul>
+      )}
+      {evidence?.isTemplateWide && <div className="chip warn">Fix once in the theme: it's on every page that uses this template</div>}
+      <div>
+        <strong>Fix: </strong>
+        {evidence?.fix || issue.howToFix}
+      </div>
+    </div>
+  )
   return (
     <>
-      {data.issues.map(({ issue, evidence }) => (
-        <div className="issue-card" key={issue.code}>
-          <div className="head">
-            <Severity severity={issue.severity} />
-            <span>
-              {issue.category}: {issue.title}
-            </span>
-            <span className="spacer" />
-            {/* Speed is measured again with Lighthouse, not a check. */}
-            {!issue.code.startsWith('lh_') && (
-              <button
-                className="small"
-                disabled={checkDisabled}
-                title="Fetch the page again to see whether this issue is resolved. Only this issue changes."
-                onClick={() => onCheck(issue)}
-              >
-                Check
-              </button>
-            )}
+      {!sections[0][1].length && <p className="hint">No issues on this URL.</p>}
+      {sections.map(([title, entries]) =>
+        entries.length ? (
+          <div className="stack" key={title || 'issues'}>
+            {title && <h3 className="issue-group">{title}</h3>}
+            {entries.map(card)}
           </div>
-          <Sources sources={issue.sources} />
-          <div className="hint">{issue.description}</div>
-          {evidence && evidence.items.length > 0 && (
-            <ul className="evidence">
-              {evidence.items.map((item, index) => (
-                <li key={index}>
-                  {item.url ? (
-                    <a
-                      href={item.url}
-                      onClick={(event) => {
-                        event.preventDefault()
-                        onSelectURL(item.url!)
-                      }}
-                    >
-                      {item.text}
-                    </a>
-                  ) : (
-                    item.text
-                  )}
-                  {item.position !== undefined && item.position > 0 && <span className="chip" style={{ marginLeft: 6 }}>{linkPositions[item.position]}</span>}
-                  {!!item.pagesWithSameLink && item.pagesWithSameLink > 1 && (
-                    <span className="hint"> · on {number(item.pagesWithSameLink)} pages</span>
-                  )}
-                </li>
-              ))}
-              {evidence.more > 0 && <li className="hint">…and {number(evidence.more)} more</li>}
-            </ul>
-          )}
-          {evidence?.isTemplateWide && <div className="chip warn">Fix once in the theme: it's on every page that uses this template</div>}
-          <div>
-            <strong>Fix: </strong>
-            {evidence?.fix || issue.howToFix}
-          </div>
-        </div>
-      ))}
+        ) : null,
+      )}
     </>
   )
 }
