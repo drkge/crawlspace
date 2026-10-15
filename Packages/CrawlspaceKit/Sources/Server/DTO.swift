@@ -152,6 +152,13 @@ struct CountsDTO: Codable, Sendable {
     var searches: [NamedCountDTO]
     var hasLighthouse: Bool
     var overview: OverviewStats
+    /// Issues set aside on pages that can't be indexed, and how many pages: not in `issues`.
+    var setAside: SetAsideDTO
+}
+
+struct SetAsideDTO: Codable, Sendable {
+    var issues: Int
+    var pages: Int
 }
 
 struct ColumnDTO: Codable, Sendable {
@@ -224,6 +231,10 @@ struct InspectorDTO: Codable, Sendable {
     var status: String
     var indexability: String
     var indexable: Bool
+    /// Why it can't be indexed: "Canonicalised", "Noindex", "Redirected"…
+    var indexabilityReason: String?
+    /// Issues set aside because it can't be indexed: not in `issues`.
+    var setAside: Int
     var isPage: Bool
     var serp: SERPDTO?
     var details: [KeyValueDTO]
@@ -248,6 +259,8 @@ struct InspectorDTO: Codable, Sendable {
         status = row.statusDescription
         indexability = row.state == .crawled ? row.indexability.label : ""
         indexable = row.indexability == .indexable
+        indexabilityReason = row.state == .crawled ? row.indexabilityReason : nil
+        setAside = (try? store.setAsideCount(for: id)) ?? 0
         isPage = row.resourceType == .page
 
         if row.resourceType == .page, row.title != nil || row.metaDescription != nil {

@@ -191,7 +191,14 @@ function Issues({
   onCheck: (issue: Issue) => void
   onSelectURL: (url: string) => void
 }) {
-  if (!data.issues.length) return <p className="hint">No issues on this URL.</p>
+  // On a page that can't be indexed, only why is listed; the rest is set aside.
+  const setAside = data.setAside > 0 && (
+    <p className="hint">
+      This page can't be indexed{data.indexabilityReason ? ` (${data.indexabilityReason})` : ''}, so {number(data.setAside)}
+      {data.issues.length ? ' other' : ''} {data.setAside === 1 ? 'issue on it isn\'t' : 'issues on it aren\'t'} shown: only why it can't be.
+    </p>
+  )
+  if (!data.issues.length) return setAside || <p className="hint">No issues on this URL.</p>
   // The page's own issues first, then Lighthouse and Sitemap under their own headings.
   const sections: [string, typeof data.issues][] = [
     ['', data.issues.filter(({ issue }) => isPageIssue(issue))],
@@ -255,7 +262,8 @@ function Issues({
   )
   return (
     <>
-      {!sections[0][1].length && <p className="hint">No issues on this URL.</p>}
+      {setAside}
+      {!sections[0][1].length && !setAside && <p className="hint">No issues on this URL.</p>}
       {sections.map(([title, entries]) =>
         entries.length ? (
           <div className="stack" key={title || 'issues'}>

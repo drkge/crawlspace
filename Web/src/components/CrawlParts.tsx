@@ -198,6 +198,12 @@ export function Overview(props: {
           <span className="label">Average response</span>
         </div>
       </div>
+      {counts.setAside.issues > 0 && (
+        <p className="hint">
+          Not shown: {plural(counts.setAside.issues, 'issue')} on {plural(counts.setAside.pages, 'non-indexable page')}. A page that can't be indexed
+          lists only why: its status, a noindex, or a mistake in its canonical.
+        </p>
+      )}
 
       <div className="charts">
         <div className="card stack">

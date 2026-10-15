@@ -83,7 +83,7 @@ public actor CrawlEngine {
         self.store = store
         self.config = config
         self.memoryQueueLimit = memoryQueueLimit
-        writer = CrawlWriter(store: store)
+        writer = CrawlWriter(store: store, setAside: IssueVisibility.setsAside)
         scope = CrawlScope(config: config)
         let scope = self.scope
         let resolvedPassword = password ?? (config.basicAuthUsername.isEmpty

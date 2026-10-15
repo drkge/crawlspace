@@ -555,6 +555,21 @@ extension CrawlStore {
         }
     }
 
+    /// Issues set aside on pages that can't be indexed: how many, and on how many pages.
+    public func setAsideCounts() throws -> (issues: Int, pages: Int) {
+        try pool.read { db in
+            let row = try Row.fetchOne(db, sql: "SELECT COUNT(*), COUNT(DISTINCT url_id) FROM issues_set_aside")
+            return (row?[0] ?? 0, row?[1] ?? 0)
+        }
+    }
+
+    /// How many issues are set aside on one URL.
+    public func setAsideCount(for id: Int64) throws -> Int {
+        try pool.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM issues_set_aside WHERE url_id = ?", arguments: [id]) ?? 0
+        }
+    }
+
     /// Every issue in the crawl but those with these codes.
     public func issueRows(excluding codes: [String]) throws -> [IssueRow] {
         try pool.read { db in

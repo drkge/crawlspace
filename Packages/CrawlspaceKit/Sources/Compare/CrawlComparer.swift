@@ -73,6 +73,9 @@ public enum CrawlComparer {
         guard FileManager.default.fileExists(atPath: baselineDatabase.path) else {
             throw CompareError.notACrawl(baseline.lastPathComponent)
         }
+        // Both sorted by the same rule, so issues set aside in one aren't "fixed" or "new" against the other.
+        try IssueVisibility.apply(store: CrawlStore.open(at: baseline))
+        try IssueVisibility.apply(store: current)
 
         var comparison = CrawlComparison(
             baselineName: baseline.deletingPathExtension().lastPathComponent,
