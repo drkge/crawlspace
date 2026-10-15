@@ -28,6 +28,7 @@ actor CrawlSession {
     private var lighthouseProgress: LighthouseBatch.Progress?
     private var lighthouseMessage: String?
     private var checkTask: Task<Void, Never>?
+    private var checkIssue: String?
     private var checkProgress: PageCheck.Progress?
     private var exporting: String?
     private let sleepGuard = SleepGuard()
@@ -61,7 +62,7 @@ actor CrawlSession {
             config: config,
             lighthouse: LighthouseStateDTO(running: lighthouseTask != nil, progress: lighthouseProgress,
                                            message: lighthouseMessage),
-            check: CheckStateDTO(running: checkTask != nil, progress: checkProgress),
+            check: CheckStateDTO(running: checkTask != nil, issue: checkIssue, progress: checkProgress),
             exporting: exporting,
             ecommerceNote: try? store.meta("ecommerce_note"),
             speedPlan: LighthousePages.describe(config)
@@ -254,17 +255,22 @@ actor CrawlSession {
     // MARK: - Checking pages
 
     /// Checks some of the crawl's URLs again, in place: what's resolved leaves the crawl.
-    func startCheck(rowIDs: [Int64]) throws {
+    func startCheck(rowIDs: [Int64], issue: String) throws {
         guard !isRunning else { throw ServerError.conflict("Wait for the crawl to finish before checking pages.") }
         guard checkTask == nil else { throw ServerError.conflict("Pages are already being checked.") }
         guard !rowIDs.isEmpty else { throw ServerError.badRequest("Choose the pages to check.") }
+        guard IssueCatalogue.definition(for: issue) != nil else { throw ServerError.badRequest("Choose the issue to check.") }
+        guard !PostCrawlAnalyzer.speedCodes.contains(issue) else {
+            throw ServerError.badRequest("Speed is measured again with Run Speed Check, not a check.")
+        }
         let store = store
+        checkIssue = CheckResultDTO.title(of: issue)
         checkProgress = PageCheck.Progress(done: 0, total: rowIDs.count)
         sleepGuard.begin(reason: "Crawlspace is checking pages of \(name)")
         checkTask = Task { [weak self] in
             let owner = self
             do {
-                let result = try await PageCheck.run(store: store, ids: rowIDs) { update in
+                let result = try await PageCheck.run(store: store, ids: rowIDs, issue: issue) { update in
                     Task { await owner?.checkUpdated(update) }
                 }
                 await owner?.checkFinished(CheckResultDTO(result))
@@ -283,6 +289,7 @@ actor CrawlSession {
 
     private func checkFinished(_ result: CheckResultDTO?, error: String? = nil) {
         checkTask = nil
+        checkIssue = nil
         checkProgress = nil
         if engine == nil, lighthouseTask == nil { sleepGuard.end() }
         if let result { events.publish("check-finished", result) }

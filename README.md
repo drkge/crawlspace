@@ -139,19 +139,25 @@ or web page. They download through the browser.
 
 ## Checking pages
 
-Fixed something? Check it. **Check** in the inspector fetches the page again; **Check all N** at the
-top of an issue's list does every page in it; and Check in the table's right-click menu does the
-pages chosen. A check fetches each page afresh, and every address its links lead to that answered
-badly before — broken, redirecting, unreachable — or is new to the crawl, then works the crawl's
-cross-page issues out again. What's resolved leaves the crawl: the page, the list and the counts.
-What isn't stays, and a strip across the top of the crawl says which. It takes seconds, in the crawl
-you're looking at: no new crawl. Speed isn't measured again by a check; Run Lighthouse does that.
+Fixed something? Check it. Each issue in the inspector's Issues tab has a **Check** button, which
+fetches the page again to see whether that issue is resolved; **Check all N** at the top of an
+issue's list does every page in it; and Check in the table's right-click menu, on an issue's list,
+does the pages chosen. A check is about one issue. Each page is fetched afresh, with any address
+its links lead to that's new to the crawl and, for an issue about where links lead (broken links,
+redirects, canonical and hreflang targets), every one that answered badly before. Then the crawl's
+cross-page issues are worked out again. Where the issue is resolved, it leaves the crawl: the page,
+the list and the counts. Where it isn't, it stays, and a strip across the top of the crawl says
+which. Every other issue is left as it was, so a check never moves anything you didn't ask about.
+It takes seconds, in the crawl you're looking at: no new crawl.
 
-When an issue is fixed on a page checked but other pages still have it, the strip says so and offers
-to check those too: a fix made once in the theme — the same heading on every product page — reaches
-them all, and only fetching them again shows it. Every kind of issue fixed gets its own offer, and
-when there are several, **Check All** fetches every page with any of them, once each. Pages just
-checked aren't offered again, and nothing more is fetched unless asked.
+A page the site won't answer, because it has asked to slow down and still does after a wait, is
+left as it was rather than filed as broken, and the strip says so. Speed issues have no Check: Run
+Speed Check measures them again.
+
+When the issue is resolved on a page checked but other pages still have it, the strip says so and
+offers to check those for it too: a fix made once in the theme, such as the same heading on every
+product page, reaches them all, and only fetching them again shows it. Pages just checked aren't
+offered again, and nothing more is fetched unless asked.
 
 ## What counts as one fix
 

@@ -45,35 +45,36 @@ struct LighthouseStateDTO: Codable, Sendable {
 
 struct CheckStateDTO: Codable, Sendable {
     var running: Bool
+    /// The issue being checked, by its title.
+    var issue: String?
     var progress: PageCheck.Progress?
 }
 
-/// What checking pages found: each issue resolved, or newly found, by its title, with how many
-/// pages; and how many are still there.
+/// What checking an issue found: on how many of the pages checked it's gone, and still there; and
+/// when it's gone from any, the other pages that still have it.
 struct CheckResultDTO: Codable, Sendable {
-    struct Count: Codable, Sendable {
-        var code: String
-        var title: String
-        var pages: Int
-        /// Other URLs still with it, for an issue resolved: worth checking too.
-        var elsewhere: [Int64]?
-    }
+    var code: String
+    var title: String
     var checked: Int
-    var resolved: [Count]
-    var found: [Count]
+    var resolved: Int
     var remaining: Int
+    /// Pages the site wouldn't answer — it asked to slow down — left as they were.
+    var unanswered: Int
+    var elsewhere: [Int64]
 
     init(_ result: PageCheck.Result) {
-        func counts(_ codes: [String: Int], elsewhere: [String: [Int64]] = [:]) -> [Count] {
-            codes.map { code, pages in
-                Count(code: code, title: IssueCatalogue.definition(for: code).map { "\($0.category.rawValue): \($0.title)" } ?? code,
-                      pages: pages, elsewhere: elsewhere[code])
-            }.sorted { $0.pages != $1.pages ? $0.pages > $1.pages : $0.title < $1.title }
-        }
+        code = result.issue
+        title = CheckResultDTO.title(of: result.issue)
         checked = result.checked
-        resolved = counts(result.resolved, elsewhere: result.elsewhere)
-        found = counts(result.found)
+        resolved = result.resolved
         remaining = result.remaining
+        unanswered = result.unanswered
+        elsewhere = result.elsewhere
+    }
+
+    /// "Canonicals: Canonicalised", as the sidebar lists it.
+    static func title(of code: String) -> String {
+        IssueCatalogue.definition(for: code).map { "\($0.category.rawValue): \($0.title)" } ?? code
     }
 }
 

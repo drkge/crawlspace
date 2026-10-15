@@ -264,7 +264,7 @@ struct CrawlRoutes {
         crawls.post(":id/check") { request, context in
             let body = try await request.decodeJSON(PageCheckBody.self, context: context)
             let session = try await session(context)
-            try await session.startCheck(rowIDs: body.rowIds)
+            try await session.startCheck(rowIDs: body.rowIds, issue: body.issue)
             return JSON(await session.state())
         }
         crawls.get(":id/speed") { _, context in

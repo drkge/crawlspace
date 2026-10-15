@@ -104,13 +104,18 @@ export interface CheckProgress {
   total: number
 }
 
-/** What checking pages found: issues resolved and newly found, by title, with how many pages. */
+/** What checking an issue found: on how many of the pages checked it's gone, and still there. */
 export interface CheckResult {
+  code: string
+  /** "Canonicals: Canonicalised", as the sidebar lists it. */
+  title: string
   checked: number
-  /** `elsewhere`: for an issue resolved, the other URLs in the crawl that still have it, not counting those just checked. */
-  resolved: { code: string; title: string; pages: number; elsewhere?: number[] }[]
-  found: { code: string; title: string; pages: number }[]
+  resolved: number
   remaining: number
+  /** Pages the site wouldn't answer (it asked to slow down), left as they were. */
+  unanswered: number
+  /** When it's gone from any page checked, the other URLs in the crawl that still have it. */
+  elsewhere: number[]
 }
 
 export interface CrawlState {
@@ -125,7 +130,7 @@ export interface CrawlState {
   isConfigurable: boolean
   config: CrawlConfig
   lighthouse: { running: boolean; progress?: LighthouseProgress; message?: string }
-  check: { running: boolean; progress?: CheckProgress }
+  check: { running: boolean; issue?: string; progress?: CheckProgress }
   exporting?: string
   ecommerceNote?: string
   /** What a speed check measures, e.g. "one page of each Shopify template". */

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api, crawlPath, type Inspector as InspectorData, type LighthouseRun, type LinkRow } from '../api'
+import { api, crawlPath, type Inspector as InspectorData, type Issue, type LighthouseRun, type LinkRow } from '../api'
 import { isNofollow, linkPositions, linkTypes, number, relativeDate, useStoredState } from '../hooks'
 import { ScoreGauge, Severity, messageOf, useToast } from '../ui'
 
@@ -13,7 +13,8 @@ export default function Inspector(props: {
   lighthouseRunning: boolean
   /** Set while pages are being checked, or the crawl is running: no checking then. */
   checkDisabled: boolean
-  onCheck: (ids: number[]) => void
+  /** Checks one of the URL's issues again. */
+  onCheck: (ids: number[], issue: Issue) => void
   onSelectURL: (url: string) => void
   onRunLighthouse: (ids: number[]) => void
 }) {
@@ -49,14 +50,6 @@ export default function Inspector(props: {
           <span className={`chip ${statusClass}`}>{data.statusCode ? `${data.statusCode} ${data.status}` : data.status}</span>
           {data.indexability && <span className={`chip ${data.indexable ? 'ok' : 'warn'}`}>{data.indexability}</span>}
           <span className="spacer" />
-          <button
-            className="small"
-            disabled={props.checkDisabled}
-            title="Fetch it again, with what its issues point at: what's resolved leaves the crawl"
-            onClick={() => props.onCheck([data.id])}
-          >
-            Check
-          </button>
           <a className="button small" href={data.url} target="_blank" rel="noopener noreferrer">
             Open ↗
           </a>
@@ -71,7 +64,9 @@ export default function Inspector(props: {
       </div>
       <div className="inspector-body">
         {tab === 'details' && <Details data={data} />}
-        {tab === 'issues' && <Issues data={data} onSelectURL={props.onSelectURL} />}
+        {tab === 'issues' && (
+          <Issues data={data} checkDisabled={props.checkDisabled} onCheck={(issue) => props.onCheck([data.id], issue)} onSelectURL={props.onSelectURL} />
+        )}
         {tab === 'links' && <Links data={data} onSelectURL={props.onSelectURL} />}
         {tab === 'speed' && (
           <Speed data={data} crawlID={props.crawlID} running={props.lighthouseRunning} onRun={() => props.onRunLighthouse([data.id])} />
@@ -182,7 +177,17 @@ function Details({ data }: { data: InspectorData }) {
   )
 }
 
-function Issues({ data, onSelectURL }: { data: InspectorData; onSelectURL: (url: string) => void }) {
+function Issues({
+  data,
+  checkDisabled,
+  onCheck,
+  onSelectURL,
+}: {
+  data: InspectorData
+  checkDisabled: boolean
+  onCheck: (issue: Issue) => void
+  onSelectURL: (url: string) => void
+}) {
   if (!data.issues.length) return <p className="hint">No issues on this URL.</p>
   return (
     <>
@@ -193,6 +198,18 @@ function Issues({ data, onSelectURL }: { data: InspectorData; onSelectURL: (url:
             <span>
               {issue.category}: {issue.title}
             </span>
+            <span className="spacer" />
+            {/* Speed is measured again with Lighthouse, not a check. */}
+            {!issue.code.startsWith('lh_') && (
+              <button
+                className="small"
+                disabled={checkDisabled}
+                title="Fetch the page again to see whether this issue is resolved. Only this issue changes."
+                onClick={() => onCheck(issue)}
+              >
+                Check
+              </button>
+            )}
           </div>
           <div className="hint">{issue.description}</div>
           {evidence && evidence.items.length > 0 && (

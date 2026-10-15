@@ -104,6 +104,12 @@ public struct StructuredDataRow: Sendable, Hashable, Codable {
     public var error: String?
 }
 
+/// One issue on one URL.
+public struct IssueRow: Sendable, Hashable {
+    public var code: String
+    public var urlID: Int64
+}
+
 public struct HreflangRow: Sendable, Hashable, Codable {
     public var lang: String
     public var url: String
@@ -546,6 +552,26 @@ extension CrawlStore {
                 for row in rows { codes[row[0], default: []].insert(row[1]) }
             }
             return codes
+        }
+    }
+
+    /// Every issue in the crawl but those with these codes.
+    public func issueRows(excluding codes: [String]) throws -> [IssueRow] {
+        try pool.read { db in
+            try Row.fetchAll(db, sql: "SELECT code, url_id FROM issues WHERE code NOT IN (\(codes.map { _ in "?" }.joined(separator: ",")))",
+                             arguments: StatementArguments(codes))
+                .map { IssueRow(code: $0[0], urlID: $0[1]) }
+        }
+    }
+
+    /// Puts the crawl's issues, all but those with these codes, back to what `issueRows(excluding:)`
+    /// read: so work done for some issues leaves the others as they were.
+    public func restoreIssues(_ rows: [IssueRow], excluding codes: [String]) throws {
+        try pool.write { db in
+            try db.execute(sql: "DELETE FROM issues WHERE code NOT IN (\(codes.map { _ in "?" }.joined(separator: ",")))",
+                           arguments: StatementArguments(codes))
+            let insert = try db.cachedStatement(sql: "INSERT OR IGNORE INTO issues (code, url_id) VALUES (?, ?)")
+            for row in rows { try insert.execute(arguments: [row.code, row.urlID]) }
         }
     }
 

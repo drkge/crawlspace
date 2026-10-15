@@ -39,6 +39,8 @@ struct ReportBody: Decodable {
 
 struct PageCheckBody: Decodable {
     var rowIds: [Int64]
+    /// The issue to check them for.
+    var issue: String
 }
 
 struct LighthouseBody: Decodable {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router'
-import { api, crawlPath, downloadFrom, type CheckProgress, type CheckResult, type Counts, type CrawlConfig, type CrawlState, type RowList } from '../api'
+import { api, crawlPath, downloadFrom, type CheckProgress, type CheckResult, type Counts, type CrawlConfig, type CrawlState, type Issue, type RowList } from '../api'
 import ConfigDialog from '../components/ConfigDialog'
 import { IssueBanner, Overview, Sidebar, StatusBar } from '../components/CrawlParts'
 import { ClickUpDialog, CompareDialog, ReportDialog } from '../components/Dialogs'
@@ -88,7 +88,7 @@ export default function CrawlPage() {
       lighthouse: (progress) =>
         setState((current) => (current ? { ...current, lighthouse: { ...current.lighthouse, running: true, progress } } : current)),
       check: (progress: CheckProgress) =>
-        setState((current) => (current ? { ...current, check: { running: true, progress } } : current)),
+        setState((current) => (current ? { ...current, check: { ...current.check, running: true, progress } } : current)),
       'check-finished': (result: CheckResult) => setCheckResult(result),
       changed: dataChanged,
       error: (event) => toast(event.message, true),
@@ -115,14 +115,14 @@ export default function CrawlPage() {
     }
   }
 
-  /** Checks pages again in place; what's resolved leaves the crawl when it finishes. */
-  const checkPages = async (ids: number[]) => {
-    if (ids.length > 500 && !window.confirm(`Check all ${number(ids.length)} pages? Each is fetched again, with what its issues point at.`)) return
-    const next = await run(() => api.post<CrawlState>(`${path}/check`, { rowIds: ids }))
+  /** Checks pages again for one issue, in place: it leaves the pages it's resolved on, and nothing else changes. */
+  const checkIssue = async (ids: number[], code: string, title: string) => {
+    if (ids.length > 500 && !window.confirm(`Check all ${number(ids.length)} pages for ${title}? Each is fetched again.`)) return
+    const next = await run(() => api.post<CrawlState>(`${path}/check`, { rowIds: ids, issue: code }))
     if (next) {
       setState(next)
       setCheckResult(null)
-      toast(ids.length === 1 ? 'Checking the page…' : `Checking ${number(ids.length)} pages…`)
+      toast(`Checking ${ids.length === 1 ? 'the page' : `${number(ids.length)} pages`} for ${title}…`)
     }
   }
 
@@ -271,42 +271,21 @@ export default function CrawlPage() {
         <div className="check-result">
           <div className="check-result-lines">
             <span>{checkSummary(checkResult)}</span>
-            {(() => {
-              // Each issue fixed that other pages still have, and, when there are several, every page
-              // with any of them, so a theme fix that cleared a few kinds of issue is checked in one go.
-              const fixed = checkResult.resolved.filter((issue) => issue.elsewhere?.length)
-              const all = [...new Set(fixed.flatMap((issue) => issue.elsewhere ?? []))]
-              const button = (ids: number[], label: string) => (
-                <button className="small" disabled={checkDisabled} onClick={() => checkPages(ids)}>
-                  {label}
+            {checkResult.elsewhere.length > 0 && (
+              <span className="row" style={{ gap: 8 }}>
+                <span>
+                  {number(checkResult.elsewhere.length)} other {checkResult.elsewhere.length === 1 ? 'page still has' : 'pages still have'} it: the same
+                  fix may have reached {checkResult.elsewhere.length === 1 ? 'it' : 'them'}.
+                </span>
+                <button
+                  className="small"
+                  disabled={checkDisabled}
+                  onClick={() => checkIssue(checkResult.elsewhere, checkResult.code, checkResult.title)}
+                >
+                  {checkResult.elsewhere.length === 1 ? 'Check It' : `Check Those ${number(checkResult.elsewhere.length)}`}
                 </button>
-              )
-              return (
-                <>
-                  {fixed.length > 1 && (
-                    <span className="row" style={{ gap: 8 }}>
-                      <span>
-                        {fixed.length} kinds of issue were fixed, and {number(all.length)} other {all.length === 1 ? 'page has' : 'pages have'} at
-                        least one of them: the same fixes may have reached them.
-                      </span>
-                      {button(all, `Check All ${number(all.length)}`)}
-                    </span>
-                  )}
-                  {fixed.map((issue) => {
-                    const ids = issue.elsewhere ?? []
-                    return (
-                      <span key={issue.code} className="row" style={{ gap: 8 }}>
-                        <span>
-                          {issue.title} was fixed{issue.pages > 1 ? ` on ${number(issue.pages)} pages` : ''}, and {number(ids.length)} other{' '}
-                          {ids.length === 1 ? 'page still has' : 'pages still have'} it{fixed.length > 1 ? '.' : ': the same fix may have reached them.'}
-                        </span>
-                        {button(ids, ids.length === 1 ? 'Check It' : `Check Those ${number(ids.length)}`)}
-                      </span>
-                    )
-                  })}
-                </>
-              )
-            })()}
+              </span>
+            )}
           </div>
           <button className="plain" title="Dismiss" onClick={() => setCheckResult(null)}>
             ×
@@ -336,12 +315,12 @@ export default function CrawlPage() {
               </strong>
               <span className="hint">{rows ? `${number(rows.ids.length)} URLs` : ''}</span>
               <span className="spacer" />
-              {rows?.issue && rows.ids.length > 0 && (
+              {rows?.issue && !rows.issue.code.startsWith('lh_') && rows.ids.length > 0 && (
                 <button
                   className="small"
                   disabled={checkDisabled}
-                  title="Fetch each again, with what its issues point at: what's resolved leaves the list"
-                  onClick={() => checkPages(rows.ids)}
+                  title="Fetch each again to see whether this issue is resolved: the pages it's resolved on leave the list"
+                  onClick={() => checkIssue(rows.ids, rows.issue!.code, issueTitle(rows.issue!))}
                 >
                   Check all {number(rows.ids.length)}
                 </button>
@@ -360,7 +339,7 @@ export default function CrawlPage() {
                 selected={selected}
                 onSelect={setSelected}
                 onRunLighthouse={(ids) => runLighthouse({ rowIds: ids })}
-                onCheck={checkPages}
+                onCheck={rows.issue && !rows.issue.code.startsWith('lh_') ? (ids) => checkIssue(ids, rows.issue!.code, issueTitle(rows.issue!)) : undefined}
               />
             ) : (
               <div className="empty">Loading…</div>
@@ -376,7 +355,7 @@ export default function CrawlPage() {
               version={version}
               lighthouseRunning={state.lighthouse.running}
               checkDisabled={checkDisabled}
-              onCheck={checkPages}
+              onCheck={(ids, issue) => checkIssue(ids, issue.code, issueTitle(issue))}
               onSelectURL={selectURL}
               onRunLighthouse={(ids) => runLighthouse({ rowIds: ids })}
             />
@@ -405,13 +384,24 @@ export default function CrawlPage() {
   )
 }
 
-/** "Checked 7 pages: 5 issues resolved (Links: Links to Broken Internal URLs ×4, …), 9 still there." */
+/** "Canonicals: Canonicalised", as the sidebar lists it. */
+function issueTitle(issue: Issue) {
+  return `${issue.category}: ${issue.title}`
+}
+
+/** "Canonicals: Canonicalised is resolved on 3 of the 7 pages checked, and still on 4." */
 function checkSummary(result: CheckResult) {
-  const list = (counts: CheckResult['resolved']) => counts.map((count) => (count.pages > 1 ? `${count.title} ×${number(count.pages)}` : count.title)).join(', ')
-  const resolved = result.resolved.reduce((total, count) => total + count.pages, 0)
-  let text = `Checked ${result.checked === 1 ? 'the page' : `${number(result.checked)} pages`}: `
-  text += resolved ? `${number(resolved)} ${resolved === 1 ? 'issue' : 'issues'} resolved (${list(result.resolved)})` : 'nothing resolved'
-  text += `, ${number(result.remaining)} still there.`
-  if (result.found.length) text += ` Newly found: ${list(result.found)}.`
+  const slowDown = (pages: number) =>
+    `the site asked to slow down, so ${pages === 1 ? (result.checked ? "it's" : "the page is") : result.checked ? "they're" : 'the pages are'} as before. Try again in a minute.`
+  if (result.checked === 0) return `${result.title} wasn't checked: ${slowDown(result.unanswered)}`
+  let text =
+    result.checked === 1
+        ? `${result.title} is ${result.resolved ? 'resolved on the page' : 'still on the page'}.`
+        : !result.resolved
+          ? `${result.title} is still on all ${number(result.checked)} pages checked.`
+          : !result.remaining
+            ? `${result.title} is resolved on all ${number(result.checked)} pages checked.`
+            : `${result.title} is resolved on ${number(result.resolved)} of the ${number(result.checked)} pages checked, and still on ${number(result.remaining)}.`
+  if (result.unanswered) text += ` ${number(result.unanswered)} ${result.unanswered === 1 ? "page wasn't" : "pages weren't"} checked: ${slowDown(result.unanswered)}`
   return text
 }
