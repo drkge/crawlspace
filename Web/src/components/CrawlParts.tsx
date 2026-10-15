@@ -314,7 +314,8 @@ export function StatusBar({ state }: { state: CrawlState }) {
       )}
       {state.check.running && state.check.progress && (
         <span>
-          Checking {number(state.check.progress.done)} of {number(state.check.progress.total)}…
+          Checking {state.check.issue ? `${state.check.issue} · ` : ''}
+          {number(state.check.progress.done)} of {number(state.check.progress.total)}…
         </span>
       )}
       <span className="spacer" />

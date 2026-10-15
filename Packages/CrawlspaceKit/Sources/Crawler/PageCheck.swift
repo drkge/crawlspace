@@ -3,13 +3,18 @@ import CrawlCore
 import Foundation
 import Storage
 
-/// Checks some URLs of a finished crawl again, in place.
+/// Checks one issue on some URLs of a finished crawl again, in place.
 ///
-/// Each is fetched again, and so is every address its links lead to that answered badly — broken,
-/// redirecting, unreachable — or that's new to the crawl. What's found is written over what was
-/// there, and the crawl's cross-page issues (links to broken pages, duplicates, canonicals…) are
-/// worked out again. So an issue that's been fixed is gone from the crawl, and one that hasn't
-/// stays. Speed isn't measured: that's Lighthouse's.
+/// Each is fetched again, and so is every address its links lead to that's new to the crawl, or —
+/// when the issue is about where links lead — that answered badly before: broken, redirecting,
+/// unreachable. What's found is written over what was there, and the crawl's cross-page issues
+/// (links to broken pages, duplicates, canonicals…) are worked out again. So the issue is gone
+/// from the pages it's been fixed on, and stays on the rest.
+///
+/// Only that issue changes. Every other issue in the crawl is left as it was, even where the
+/// pages fetched would now say otherwise: a check answers the one question it was asked. A URL
+/// the site wouldn't answer — it asked to slow down, and still did after waiting — is left as it
+/// was too, rather than filed as broken. Speed isn't measured: that's Lighthouse's.
 public enum PageCheck {
     public struct Progress: Sendable, Codable, Hashable {
         public var done: Int
@@ -22,20 +27,32 @@ public enum PageCheck {
     }
 
     public struct Result: Sendable, Codable, Hashable {
+        /// The issue checked.
+        public var issue: String
+        /// URLs fetched again.
         public var checked = 0
-        /// Issue codes gone from the URLs checked, with how many URLs each left.
-        public var resolved: [String: Int] = [:]
-        /// Issue codes on the URLs checked that weren't there before.
-        public var found: [String: Int] = [:]
-        /// Issues still on the URLs checked.
+        /// Of those, the ones the issue has gone from.
+        public var resolved = 0
+        /// The ones it's still on.
         public var remaining = 0
-        /// For each issue resolved, the other URLs in the crawl that still have it, most linked-to
-        /// first: the same fix may have reached them too — a theme's, say — and checking them would
-        /// tell. URLs this check just looked at are left out, and so is speed, which it doesn't measure.
-        public var elsewhere: [String: [Int64]] = [:]
+        /// URLs the site wouldn't answer, left as they were.
+        public var unanswered = 0
+        /// When the issue has gone from any URL checked, the other URLs in the crawl that still have
+        /// it, most linked-to first: the same fix may have reached them too — a theme's, say — and
+        /// checking them would tell.
+        public var elsewhere: [Int64] = []
     }
 
-    public static func run(store: CrawlStore, ids: [Int64], password: String? = nil,
+    /// Issues about where a page's links, canonical, hreflang or redirect lead: checking one
+    /// means fetching those addresses again too, when they answered badly.
+    static let aboutTargets: Set<String> = [
+        "redirect_chain", "redirect_loop",
+        "links_to_broken_internal", "links_to_redirect_internal", "links_to_broken_external", "links_to_unverified_external",
+        "canonical_target_non_200", "canonical_target_non_indexable",
+        "hreflang_missing_return_links", "hreflang_non_200_target",
+    ]
+
+    public static func run(store: CrawlStore, ids: [Int64], issue: String, password: String? = nil,
                            progress: @Sendable (Progress) -> Void = { _ in }) async throws -> Result {
         let config = try store.loadConfig()
         let scope = CrawlScope(config: config)
@@ -48,6 +65,9 @@ public enum PageCheck {
 
         let pages = try store.discoveredURLs(ids: ids)
         let before = try store.issueCodes(ids: pages.map(\.id))
+        // Speed is left out, since Lighthouse can write it while a check runs.
+        let untouched = [issue] + PostCrawlAnalyzer.speedCodes
+        let others = try store.issueRows(excluding: untouched)
 
         var index: [UInt64: Int64] = [:]
         var nextID: Int64 = 0
@@ -60,12 +80,13 @@ public enum PageCheck {
         // The pages first.
         var total = pages.count
         var done = 0
-        let checked = await process(pages, with: processor, concurrency: concurrency) {
+        let (checked, unansweredPages) = await process(pages, with: processor, concurrency: concurrency) {
             done += 1
             progress(Progress(done: done, total: total))
         }
 
-        // Then where their links lead, when it answered badly before or is new to the crawl.
+        // Then where their links lead, when it's new to the crawl, or answered badly before and
+        // the issue is about it.
         var targets: [Int64: DiscoveredURL] = [:]
         var added: Set<Int64> = []
         let pageIDs = Set(pages.map(\.id))
@@ -76,7 +97,8 @@ public enum PageCheck {
             for link in outcome.links {
                 let key = StableHash.fnv1a64(link.string)
                 if let id = index[key] {
-                    if let row = known[id], row.state == .crawled, targets[id] == nil, !pageIDs.contains(id), !answeredWell(row) {
+                    if aboutTargets.contains(issue), let row = known[id], row.state == .crawled, targets[id] == nil,
+                       !pageIDs.contains(id), !answeredWell(row) {
                         targets[id] = DiscoveredURL(id: id, url: row.url, host: link.url.host() ?? "", isInternal: row.isInternal,
                                                     depth: row.depth, state: .queued, foundVia: .link, resourceType: row.resourceType)
                     }
@@ -99,7 +121,7 @@ public enum PageCheck {
         }
         total += targets.count
         progress(Progress(done: done, total: total))
-        let fetched = await process(Array(targets.values), with: processor, concurrency: concurrency) {
+        let (fetched, _) = await process(Array(targets.values), with: processor, concurrency: concurrency) {
             done += 1
             progress(Progress(done: done, total: total))
         }
@@ -119,20 +141,20 @@ public enum PageCheck {
         }
         try writer.flush()
         try PostCrawlAnalyzer.run(store: store)
+        try store.restoreIssues(others, excluding: untouched)
 
-        let after = try store.issueCodes(ids: pages.map(\.id))
-        var summary = Result(checked: pages.count)
-        for page in pages {
-            let then = before[page.id] ?? [], now = after[page.id] ?? []
-            for code in then.subtracting(now) { summary.resolved[code, default: 0] += 1 }
-            for code in now.subtracting(then) { summary.found[code, default: 0] += 1 }
-            summary.remaining += now.count
+        let answered = checked.map(\.0.id)
+        let after = try store.issueCodes(ids: answered)
+        var summary = Result(issue: issue, checked: answered.count, unanswered: unansweredPages.count)
+        for id in answered {
+            let had = before[id]?.contains(issue) == true, has = after[id]?.contains(issue) == true
+            if had, !has { summary.resolved += 1 }
+            if has { summary.remaining += 1 }
         }
-        let looked = Set(pages.map(\.id))
-        for code in summary.resolved.keys where !code.hasPrefix("lh_") {
-            let others = try store.rowIDs(for: URLListQuery(filter: .issue(code), sortColumn: .inlinks, ascending: false))
+        if summary.resolved > 0 {
+            let looked = Set(pages.map(\.id))
+            summary.elsewhere = try store.rowIDs(for: URLListQuery(filter: .issue(issue), sortColumn: .inlinks, ascending: false))
                 .filter { !looked.contains($0) }
-            if !others.isEmpty { summary.elsewhere[code] = others }
         }
         return summary
     }
@@ -150,31 +172,37 @@ public enum PageCheck {
                                renderedHTML: outcome.renderedHTML, screenshot: outcome.screenshot))
     }
 
-    /// Fetches and processes URLs a few at a time, waiting and trying once more when a server
-    /// asks to slow down.
+    /// Fetches and processes URLs a few at a time. A server that asks to slow down is waited for
+    /// and asked again, twice; a URL it still won't answer comes back apart, to be left as it was.
     private static func process(_ items: [DiscoveredURL], with processor: PageProcessor, concurrency: Int,
-                                onEach: () -> Void) async -> [(DiscoveredURL, ProcessOutcome)] {
-        var results: [(DiscoveredURL, ProcessOutcome)] = []
+                                onEach: () -> Void) async -> (answered: [(DiscoveredURL, ProcessOutcome)], unanswered: [DiscoveredURL]) {
+        var answered: [(DiscoveredURL, ProcessOutcome)] = []
+        var unanswered: [DiscoveredURL] = []
         await withTaskGroup(of: (DiscoveredURL, ProcessOutcome).self) { group in
             var pending = items[...]
             func startNext() {
                 guard let item = pending.popFirst() else { return }
                 group.addTask {
                     var outcome = await processor.process(item, attempt: 0)
-                    if let seconds = outcome.retryAfterSeconds {
+                    for attempt in 1...2 {
+                        guard let seconds = outcome.retryAfterSeconds else { break }
                         try? await Task.sleep(for: .seconds(min(seconds, 30)))
-                        outcome = await processor.process(item, attempt: 1)
+                        outcome = await processor.process(item, attempt: attempt)
+                        // The last try comes back with the refusal as its answer; don't file that.
+                        if attempt == 2, outcome.result.statusCode == 429 || outcome.result.statusCode == 503 {
+                            outcome.retryAfterSeconds = seconds
+                        }
                     }
                     return (item, outcome)
                 }
             }
             for _ in 0..<concurrency { startNext() }
-            for await finished in group {
-                results.append(finished)
+            for await (item, outcome) in group {
+                if outcome.retryAfterSeconds == nil { answered.append((item, outcome)) } else { unanswered.append(item) }
                 onEach()
                 startNext()
             }
         }
-        return results
+        return (answered, unanswered)
     }
 }

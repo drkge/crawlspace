@@ -21,7 +21,8 @@ export default function URLTable(props: {
   selected: number | null
   onSelect: (id: number | null) => void
   onRunLighthouse: (ids: number[]) => void
-  onCheck: (ids: number[]) => void
+  /** On an issue's list: checks the pages chosen for that issue. */
+  onCheck?: (ids: number[]) => void
 }) {
   const { crawlID, ids, columns, version } = props
   const toast = useToast()
@@ -209,7 +210,9 @@ export default function URLTable(props: {
             Copy URL{chosen().length > 1 ? 's' : ''}
           </button>
           <hr />
-          <button onClick={() => props.onCheck(chosen())}>Check {chosen().length === 1 ? 'This Page' : `${chosen().length} Pages`}</button>
+          {props.onCheck && (
+            <button onClick={() => props.onCheck!(chosen())}>Check {chosen().length === 1 ? 'This Page' : `${chosen().length} Pages`}</button>
+          )}
           <button onClick={() => props.onRunLighthouse(chosen())}>Run Lighthouse on {chosen().length === 1 ? 'This Page' : `${chosen().length} Pages`}</button>
         </ContextMenu>
       )}
