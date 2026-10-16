@@ -485,6 +485,12 @@ placeholder at the sizes that are missing — 64pt among them.
   descriptions, H1s and content, and don't make their first page a duplicate either. `?page=1` is
   still counted, since it's a copy of the first page. **Crawl ▸ Run Crawl Analysis Again** brings
   a saved crawl up to date.
+- **Always a fresh copy.** Crawlspace keeps no cache of its own: each fetch, render and Lighthouse
+  run starts clean. Every request also asks any cache along the way for a fresh copy, as a
+  browser's hard refresh does, by sending `Cache-Control: no-cache` and `Pragma: no-cache`.
+  Shopify's pages aren't cached by Cloudflare (`cf-cache-status: DYNAMIC`), but Shopify can keep a
+  rendered page for a short while after a change. A fix made a minute ago may need another minute
+  before a check sees it.
 - **Politeness.** robots.txt is respected by default and overriding it requires a confirmation.
   The crawler backs off automatically on 429 and 503 and honours `Retry-After`. The connection
   count can be changed while a crawl runs — open Configuration, change it, and the workers above the new
