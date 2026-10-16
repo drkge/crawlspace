@@ -297,8 +297,10 @@ export interface Inspector {
   indexable: boolean
   /** Why it can't be indexed: "Canonicalised", "Noindex"… */
   indexabilityReason?: string
-  /** Issues set aside because it can't be indexed: not in `issues`. */
+  /** Issues set aside because it can't be indexed, or is a later page of a list: not in `issues`. */
   setAside: number
+  /** Which page of a list it is, when it's a later one: 2 and on. */
+  laterPage?: number
   /** Issues ignored on it, each saying whether it's ignored everywhere or on this page. */
   ignored: Ignored[]
   isPage: boolean

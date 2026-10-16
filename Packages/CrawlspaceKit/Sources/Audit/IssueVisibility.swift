@@ -12,9 +12,14 @@ import Storage
 /// point their canonical at the product's own page and would otherwise repeat each of its issues.
 /// Their issues are set aside — kept in the crawl, but out of every list, count, report and export —
 /// and the Overview says how many.
+///
+/// So are those of the later pages of a list (?page=2 and on): the same template as the first page,
+/// with its issues again — a long description, a deep link, a page no sitemap lists, which it needn't.
+/// A later page lists only what's wrong with it as a page: its status, a noindex, a canonical
+/// mistake.
 public enum IssueVisibility {
     /// Bumped when the rule changes, so crawls opened again are sorted by the new one.
-    static let version = "1"
+    static let version = "2"
 
     /// The issues a page that can't be indexed still lists. Not being canonicalised, which is the
     /// reason itself and by design on a store's collection pages, nor slowness, which isn't why.
@@ -23,11 +28,17 @@ public enum IssueVisibility {
             && !["response_slow", "canonical_canonicalised"].contains(definition.code)
     }.map(\.code))
 
+    /// The issues a later page of a list still lists: the same, but not the sitemap's missing it or
+    /// not linking to it, which a later page needn't be or doesn't need.
+    public static let shownOnLaterPages = shownWhenNonIndexable.subtracting(["sitemap_missing", "sitemap_orphan"])
+
     /// Whether an issue found on a URL is set aside: on one of the site's pages that can't be
-    /// indexed, and not about why.
+    /// indexed, and not about why; or on a later page of a list, and not about the page itself.
     @Sendable public static func setsAside(_ url: CrawledURL, _ code: String) -> Bool {
-        url.discovery.isInternal && url.discovery.state == .crawled && url.discovery.resourceType == .page
-            && url.indexability == .nonIndexable && !shownWhenNonIndexable.contains(code)
+        guard url.discovery.isInternal, url.discovery.state == .crawled, url.discovery.resourceType == .page else { return false }
+        if url.indexability == .nonIndexable { return !shownWhenNonIndexable.contains(code) }
+        if Pagination.laterPage(of: url.discovery.url) != nil { return !shownOnLaterPages.contains(code) }
+        return false
     }
 
     /// Where an issue found on a URL goes as it's written: ignored by one of the site's rules, set
@@ -59,21 +70,25 @@ public enum IssueVisibility {
             """)
         try db.execute(sql: "DELETE FROM issues WHERE (code, url_id) IN (SELECT code, url_id FROM issues_ignored)")
 
-        let shown = shownWhenNonIndexable.sorted().map { "'\($0)'" }.joined(separator: ",")
-        let hidden = """
-            u.is_internal = 1 AND u.state = \(URLState.crawled.rawValue) AND u.resource_type = \(ResourceType.page.rawValue) \
-            AND u.indexability = \(Indexability.nonIndexable.rawValue)
+        func list(_ codes: Set<String>) -> String { codes.sorted().map { "'\($0)'" }.joined(separator: ",") }
+        let page = "u.is_internal = 1 AND u.state = \(URLState.crawled.rawValue) AND u.resource_type = \(ResourceType.page.rawValue)"
+        let nonIndexable = Indexability.nonIndexable.rawValue
+        let hidden = { (alias: String) in
             """
+            (\(page) AND ((u.indexability = \(nonIndexable) AND \(alias).code NOT IN (\(list(shownWhenNonIndexable)))) \
+            OR (u.indexability != \(nonIndexable) AND later_page(u.url) AND \(alias).code NOT IN (\(list(shownOnLaterPages))))))
+            """
+        }
         try db.execute(sql: """
             INSERT OR IGNORE INTO issues (code, url_id)
             SELECT s.code, s.url_id FROM issues_set_aside s JOIN urls u ON u.id = s.url_id
-            WHERE NOT (\(hidden) AND s.code NOT IN (\(shown)))
+            WHERE NOT \(hidden("s"))
             """)
         try db.execute(sql: "DELETE FROM issues_set_aside WHERE (code, url_id) IN (SELECT code, url_id FROM issues)")
         try db.execute(sql: """
             INSERT OR IGNORE INTO issues_set_aside (code, url_id)
             SELECT i.code, i.url_id FROM issues i JOIN urls u ON u.id = i.url_id
-            WHERE \(hidden) AND i.code NOT IN (\(shown))
+            WHERE \(hidden("i"))
             """)
         try db.execute(sql: "DELETE FROM issues WHERE (code, url_id) IN (SELECT code, url_id FROM issues_set_aside)")
         try db.execute(sql: "INSERT INTO meta(key, value) VALUES ('issues_set_aside', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
