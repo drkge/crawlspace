@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { api, crawlPath, type Bucket, type Counts, type CrawlState, type Issue, type MeasuredPage } from '../api'
+import { api, crawlPath, type Bucket, type Counts, type CrawlState, type Ignored, type Issue, type MeasuredPage } from '../api'
 import { duration, number, plural } from '../hooks'
 import { ScoreGauge, Severity, Sources } from '../ui'
 
@@ -69,6 +69,14 @@ export function Sidebar(props: {
           </div>
         )
       })}
+      {!!counts?.ignored.length && (
+        <div>
+          <h3>Ignored</h3>
+          {counts.ignored.map(({ issue, count }) =>
+            item(`ignored:${issue.code}`, `${issue.category}: ${issue.title}`, count, <span className="dot ignored" aria-label="ignored" />),
+          )}
+        </div>
+      )}
       {!!counts?.extractions.length && (
         <>
           <h3>Custom extraction</h3>
@@ -111,6 +119,22 @@ export function IssueBanner({ issue, count }: { issue: Issue; count: number }) {
         <Sources sources={issue.sources} />
       </p>
     </details>
+  )
+}
+
+/** What's ignored, and where, at the top of its list of pages, with the way back. */
+export function IgnoredBanner({ ignored, site, onStop }: { ignored: Ignored; site: string; onStop: () => void }) {
+  return (
+    <div className="issue-banner row">
+      <span className="dot ignored" />
+      <span style={{ flex: 1 }}>
+        {ignored.issue.category}: {ignored.issue.title} is ignored {ignored.everywhere ? `everywhere on ${site}` : `on ${plural(ignored.count, 'page')}`}
+        . It's left out of the issues, reports and ClickUp, here and in later crawls of the site.
+      </span>
+      <button className="small" onClick={onStop}>
+        Stop Ignoring
+      </button>
+    </div>
   )
 }
 
@@ -198,6 +222,12 @@ export function Overview(props: {
           <span className="label">Average response</span>
         </div>
       </div>
+      {counts.ignored.length > 0 && (
+        <p className="hint">
+          Ignored: {plural(counts.ignored.length, 'kind')} of issue, on {plural(counts.ignored.reduce((sum, entry) => sum + entry.count, 0), 'page')}.
+          They're under Ignored in the sidebar, where you can stop ignoring them.
+        </p>
+      )}
       {counts.setAside.issues > 0 && (
         <p className="hint">
           Not shown: {plural(counts.setAside.issues, 'issue')} on {plural(counts.setAside.pages, 'non-indexable page')}. A page that can't be indexed

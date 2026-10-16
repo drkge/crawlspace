@@ -13,6 +13,7 @@ public enum PostCrawlAnalyzer {
             let placeholders = Array(repeating: "?", count: codes.count).joined(separator: ",")
             try db.execute(sql: "DELETE FROM issues WHERE code IN (\(placeholders))", arguments: StatementArguments(codes))
             try db.execute(sql: "DELETE FROM issues_set_aside WHERE code IN (\(placeholders))", arguments: StatementArguments(codes))
+            try db.execute(sql: "DELETE FROM issues_ignored WHERE code IN (\(placeholders))", arguments: StatementArguments(codes))
 
             try refusals(db)
             try duplicates(db)
@@ -51,6 +52,7 @@ public enum PostCrawlAnalyzer {
             let placeholders = Array(repeating: "?", count: speedCodes.count).joined(separator: ",")
             try db.execute(sql: "DELETE FROM issues WHERE code IN (\(placeholders))", arguments: StatementArguments(speedCodes))
             try db.execute(sql: "DELETE FROM issues_set_aside WHERE code IN (\(placeholders))", arguments: StatementArguments(speedCodes))
+            try db.execute(sql: "DELETE FROM issues_ignored WHERE code IN (\(placeholders))", arguments: StatementArguments(speedCodes))
             try speed(db)
             try IssueVisibility.apply(db)
         }

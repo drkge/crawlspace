@@ -154,6 +154,8 @@ struct CountsDTO: Codable, Sendable {
     var overview: OverviewStats
     /// Issues set aside on pages that can't be indexed, and how many pages: not in `issues`.
     var setAside: SetAsideDTO
+    /// Issues the site's rules ignore, each with how many pages it's on: not in `issues`.
+    var ignored: [IgnoredDTO]
 }
 
 struct SetAsideDTO: Codable, Sendable {
@@ -186,6 +188,15 @@ struct RowListDTO: Codable, Sendable {
     var ids: [Int64]
     var columns: [ColumnDTO]
     var issue: IssueDTO?
+    /// For the pages whose issue is ignored: which issue, and whether it's ignored everywhere.
+    var ignored: IgnoredDTO?
+}
+
+/// An issue the site's rules ignore: on every page, or on some, and how many pages it's on.
+struct IgnoredDTO: Codable, Sendable {
+    var issue: IssueDTO
+    var everywhere: Bool
+    var count: Int
 }
 
 struct RowDTO: Codable, Sendable {
@@ -235,6 +246,8 @@ struct InspectorDTO: Codable, Sendable {
     var indexabilityReason: String?
     /// Issues set aside because it can't be indexed: not in `issues`.
     var setAside: Int
+    /// Issues ignored on it, each saying whether it's ignored everywhere or on this page.
+    var ignored: [IgnoredDTO]
     var isPage: Bool
     var serp: SERPDTO?
     var details: [KeyValueDTO]
@@ -261,6 +274,10 @@ struct InspectorDTO: Codable, Sendable {
         indexable = row.indexability == .indexable
         indexabilityReason = row.state == .crawled ? row.indexabilityReason : nil
         setAside = (try? store.setAsideCount(for: id)) ?? 0
+        let everywhere = Set(((try? store.ignoreRules()) ?? []).filter { $0.url == nil }.map(\.code))
+        ignored = ((try? store.ignoredCodes(for: id)) ?? []).compactMap { code in
+            IssueCatalogue.definition(for: code).map { IgnoredDTO(issue: IssueDTO($0), everywhere: everywhere.contains(code), count: 1) }
+        }
         isPage = row.resourceType == .page
 
         if row.resourceType == .page, row.title != nil || row.metaDescription != nil {

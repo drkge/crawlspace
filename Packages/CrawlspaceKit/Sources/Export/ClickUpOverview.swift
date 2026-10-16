@@ -85,6 +85,8 @@ public enum ClickUpOverview {
         // A crawl that stopped, or ran out of URLs, didn't look at every page: an issue it didn't
         // find may still be there, so it closes nothing.
         let whole = try store.status() == .completed && store.crawledCount() < config.maxURLs
+        // Issues ignored on every page: their tasks close, as ignored, whatever the crawl.
+        let ignored = try store.whollyIgnoredCodes()
         var urls: [String: [String]] = [:]
         for kind in kinds {
             let ids = try store.rowIDs(for: URLListQuery(filter: .issue(kind.code), sortColumn: .inlinks, ascending: false))
@@ -112,7 +114,7 @@ public enum ClickUpOverview {
         for (list, share) in lists.sorted(by: { $0.key < $1.key }) {
             let start = done
             total.add(try await file(share, into: list, urls: urls, crawl: crawl, options: options, closing: whole,
-                                     client: client) { title, fraction in
+                                     ignored: ignored, client: client) { title, fraction in
                 progress?(title, (Double(start) + fraction * Double(share.count)) / Double(max(1, kinds.count)))
             })
             done += share.count
@@ -126,7 +128,7 @@ public enum ClickUpOverview {
     /// closed — and closed if it isn't; issues with no task get one. Nothing is deleted, and a task
     /// whose group isn't being exported is left as it is.
     static func file(_ kinds: [Kind], into listID: String, urls: [String: [String]], crawl: Crawl,
-                     options: ClickUpExportOptions, closing: Bool, client: ClickUpClient,
+                     options: ClickUpExportOptions, closing: Bool, ignored: Set<String> = [], client: ClickUpClient,
                      progress: (@Sendable (String, Double) -> Void)? = nil) async throws -> ClickUpExportResult {
         let siteTag = ClickUpOverview.tagSlug(crawl.host)
         var result = ClickUpExportResult()
@@ -172,18 +174,23 @@ public enum ClickUpOverview {
             !filed.contains(code) && !task.isClosed
                 && IssueCatalogue.definition(for: code).map { options.groups.contains($0.group) } == true
         }.sorted { $0.key < $1.key }
-        guard !resolved.isEmpty else { return result }
-        guard closing else {
-            result.notClosed.insert("none closed, as the crawl didn't reach every page")
-            return result
+        // Ignored in Crawlspace is a decision, so those close whatever the crawl reached; the rest
+        // only when it looked at every page.
+        let closing = resolved.filter { ignored.contains($0.key) || closing }
+        if closing.count < resolved.count {
+            result.notClosed.insert(closing.isEmpty ? "none closed, as the crawl didn't reach every page"
+                                                    : "only ignored ones closed, as the crawl didn't reach every page")
         }
+        guard !closing.isEmpty else { return result }
         guard let closed = list.closedStatus else {
             result.notClosed.insert("none closed in \(list.name), which has no closed status")
             return result
         }
-        for (_, task) in resolved {
+        for (code, task) in closing {
             try await client.updateTask(id: task.id, status: closed)
-            try await client.comment(taskID: task.id, text: "Not found by \(crawl.name), so closed.")
+            try await client.comment(taskID: task.id, text: ignored.contains(code)
+                ? "Ignored in Crawlspace, so closed."
+                : "Not found by \(crawl.name), so closed.")
             result.closed += 1
         }
         return result

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { api, crawlPath, type Inspector as InspectorData, type Issue, type LighthouseRun, type LinkRow } from '../api'
+import { api, crawlPath, type Ignored, type Inspector as InspectorData, type Issue, type LighthouseRun, type LinkRow } from '../api'
 import { isNofollow, linkPositions, linkTypes, number, relativeDate, useStoredState } from '../hooks'
-import { ScoreGauge, Severity, Sources, messageOf, useToast } from '../ui'
+import { Menu, ScoreGauge, Severity, Sources, messageOf, useAction, useToast } from '../ui'
 import { isPageIssue } from './CrawlParts'
 
 type Tab = 'details' | 'issues' | 'links' | 'speed' | 'source'
@@ -22,6 +22,7 @@ export default function Inspector(props: {
   const [data, setData] = useState<InspectorData | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [tab, setTab] = useStoredState<Tab>('inspectorTab', 'details')
+  const run = useAction()
 
   useEffect(() => {
     if (props.rowID === null) {
@@ -68,7 +69,25 @@ export default function Inspector(props: {
       <div className="inspector-body">
         {tab === 'details' && <Details data={data} />}
         {tab === 'issues' && (
-          <Issues data={data} checkDisabled={props.checkDisabled} onCheck={(issue) => props.onCheck([data.id], issue)} onSelectURL={props.onSelectURL} />
+          <Issues
+            data={data}
+            checkDisabled={props.checkDisabled}
+            onCheck={(issue) => props.onCheck([data.id], issue)}
+            onIgnore={(issue, everywhere) =>
+              // Kept for the site, so later crawls keep to it too; the crawl reloads once it's applied.
+              run(
+                () => api.post(`${crawlPath(props.crawlID)}/ignore`, { code: issue.code, url: everywhere ? undefined : data.url }),
+                `Ignoring ${issue.category}: ${issue.title} ${everywhere ? `everywhere on ${siteOf(data.url)}` : 'on this page'}`,
+              )
+            }
+            onStopIgnoring={(entry) =>
+              run(
+                () => api.post(`${crawlPath(props.crawlID)}/unignore`, { code: entry.issue.code, url: entry.everywhere ? undefined : data.url }),
+                `No longer ignoring ${entry.issue.category}: ${entry.issue.title}${entry.everywhere ? ` on ${siteOf(data.url)}` : ' on this page'}`,
+              )
+            }
+            onSelectURL={props.onSelectURL}
+          />
         )}
         {tab === 'links' && <Links data={data} onSelectURL={props.onSelectURL} />}
         {tab === 'speed' && (
@@ -180,17 +199,51 @@ function Details({ data }: { data: InspectorData }) {
   )
 }
 
+/** The site an address is on, as ignoring everywhere means it. */
+function siteOf(address: string) {
+  try {
+    return new URL(address).host
+  } catch {
+    return 'this site'
+  }
+}
+
 function Issues({
   data,
   checkDisabled,
   onCheck,
+  onIgnore,
+  onStopIgnoring,
   onSelectURL,
 }: {
   data: InspectorData
   checkDisabled: boolean
   onCheck: (issue: Issue) => void
+  onIgnore: (issue: Issue, everywhere: boolean) => void
+  onStopIgnoring: (entry: Ignored) => void
   onSelectURL: (url: string) => void
 }) {
+  // What's ignored on this page, at the end, each with the way back.
+  const ignored = data.ignored.length > 0 && (
+    <div className="stack">
+      <h3 className="issue-group">Ignored</h3>
+      {data.ignored.map((entry) => (
+        <div className="issue-card" key={entry.issue.code}>
+          <div className="head">
+            <span className="dot ignored" />
+            <span>
+              {entry.issue.category}: {entry.issue.title}
+            </span>
+            <span className="spacer" />
+            <button className="small" onClick={() => onStopIgnoring(entry)}>
+              Stop Ignoring
+            </button>
+          </div>
+          <div className="hint">{entry.everywhere ? `Ignored everywhere on ${siteOf(data.url)}.` : 'Ignored on this page.'}</div>
+        </div>
+      ))}
+    </div>
+  )
   // On a page that can't be indexed, only why is listed; the rest is set aside.
   const setAside = data.setAside > 0 && (
     <p className="hint">
@@ -198,7 +251,13 @@ function Issues({
       {data.issues.length ? ' other' : ''} {data.setAside === 1 ? 'issue on it isn\'t' : 'issues on it aren\'t'} shown: only why it can't be.
     </p>
   )
-  if (!data.issues.length) return setAside || <p className="hint">No issues on this URL.</p>
+  if (!data.issues.length)
+    return (
+      <>
+        {setAside || <p className="hint">No issues on this URL.</p>}
+        {ignored}
+      </>
+    )
   // The page's own issues first, then Lighthouse and Sitemap under their own headings.
   const sections: [string, typeof data.issues][] = [
     ['', data.issues.filter(({ issue }) => isPageIssue(issue))],
@@ -224,6 +283,10 @@ function Issues({
             Check
           </button>
         )}
+        <Menu label="Ignore" className="small">
+          <button onClick={() => onIgnore(issue, false)}>On This Page</button>
+          <button onClick={() => onIgnore(issue, true)}>Everywhere on {siteOf(data.url)}</button>
+        </Menu>
       </div>
       <Sources sources={issue.sources} />
       <div className="hint">{issue.description}</div>
@@ -272,6 +335,7 @@ function Issues({
           </div>
         ) : null,
       )}
+      {ignored}
     </>
   )
 }

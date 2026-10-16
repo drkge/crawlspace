@@ -183,6 +183,18 @@ offers to check those for it too: a fix made once in the theme, such as the same
 product page, reaches them all, and only fetching them again shows it. Pages just checked aren't
 offered again, and nothing more is fetched unless asked.
 
+## Ignoring an issue
+
+Some issues aren't yours to fix. A second H1 might come from an app, for example. Each issue in the
+inspector's Issues tab has **Ignore ▾**, with two choices: **On This Page**, or **Everywhere on**
+the site.
+
+Ignores are kept for the site, so later crawls of it keep to them too. An ignored issue leaves the
+issues, the counts, the reports, the client summary and ClickUp: on the next push its task is closed
+with the comment "Ignored in Crawlspace". It's kept, under **Ignored** in the sidebar. Its list there
+has **Stop Ignoring**, and a page's Issues tab lists what's ignored on it, each with its own Stop
+Ignoring. Stopped, the issue is back at once, and the next push reopens its task.
+
 ## What counts as one fix
 
 The audit report, the client summary and ClickUp count problems as **fixes**: one change, with

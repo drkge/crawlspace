@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router'
 import { api, crawlPath, downloadFrom, type CheckProgress, type CheckResult, type Counts, type CrawlConfig, type CrawlState, type Issue, type RowList } from '../api'
 import ConfigDialog from '../components/ConfigDialog'
-import { IssueBanner, Overview, Sidebar, StatusBar } from '../components/CrawlParts'
+import { IgnoredBanner, IssueBanner, Overview, Sidebar, StatusBar } from '../components/CrawlParts'
 import { ClickUpDialog, CompareDialog, ReportDialog } from '../components/Dialogs'
 import Inspector from '../components/Inspector'
 import URLTable from '../components/URLTable'
@@ -327,7 +327,25 @@ export default function CrawlPage() {
               )}
               <input type="search" placeholder="Search URL, title or H1" value={search} onChange={(event) => setSearch(event.target.value)} />
             </div>
-            {rows?.issue ? <IssueBanner issue={rows.issue} count={issueCount} /> : <div />}
+            {rows?.issue ? (
+              <IssueBanner issue={rows.issue} count={issueCount} />
+            ) : rows?.ignored ? (
+              <IgnoredBanner
+                ignored={rows.ignored}
+                site={state.site}
+                onStop={async () => {
+                  const issue = rows.ignored!.issue
+                  // Every rule for it goes; back to its list, which has its pages again.
+                  const done = await run(async () => {
+                    await api.post(`${path}/unignore`, { code: issue.code, all: true })
+                    return true
+                  }, `No longer ignoring ${issue.category}: ${issue.title}`)
+                  if (done) select(`issue:${issue.code}`)
+                }}
+              />
+            ) : (
+              <div />
+            )}
             {rows ? (
               <URLTable
                 crawlID={id}
