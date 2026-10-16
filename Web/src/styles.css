@@ -642,6 +642,8 @@ label.check input {
 .inspector {
   border-left: 1px solid var(--border);
   display: grid;
+  /* As wide as it's set, whatever's in it: content wraps rather than widening the panel. */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto auto 1fr;
   min-width: 0;
   min-height: 0;
@@ -669,6 +671,7 @@ label.check input {
 }
 .tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 2px;
   padding: 0 10px;
   border-bottom: 1px solid var(--border);
@@ -691,13 +694,19 @@ label.check input {
   overflow: auto;
   padding: 12px 14px 32px;
   display: grid;
+  /* One column no wider than the panel: a long URL or title breaks rather than widening it. */
+  grid-template-columns: minmax(0, 1fr);
   align-content: start;
   gap: 18px;
   min-height: 0;
+  overflow-wrap: anywhere;
+}
+.inspector-body .stack {
+  grid-template-columns: minmax(0, 1fr);
 }
 .kv {
   display: grid;
-  grid-template-columns: minmax(90px, max-content) 1fr;
+  grid-template-columns: minmax(90px, max-content) minmax(0, 1fr);
   gap: 4px 12px;
   font-size: 12px;
 }
@@ -779,6 +788,7 @@ a.chip.source-chip:hover {
   border-radius: 8px;
   padding: 10px 12px;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 6px;
 }
 .issue-group {
@@ -786,9 +796,20 @@ a.chip.source-chip:hover {
 }
 .issue-card .head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 6px 8px;
   font-weight: 500;
+}
+/* The title takes what room there is; in a narrow panel, the buttons go beneath it, on the right. */
+.issue-card .head .title {
+  flex: 1 1 120px;
+  min-width: 0;
+}
+.issue-card .head .actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
 }
 .evidence {
   margin: 0;
@@ -804,7 +825,7 @@ a.chip.source-chip:hover {
 }
 .link-list > div {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 2px 8px;
   padding: 5px 0;
   border-bottom: 1px solid var(--border);
