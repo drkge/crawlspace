@@ -231,13 +231,14 @@ function Issues({
         <div className="issue-card" key={entry.issue.code}>
           <div className="head">
             <span className="dot ignored" />
-            <span>
+            <span className="title">
               {entry.issue.category}: {entry.issue.title}
             </span>
-            <span className="spacer" />
-            <button className="small" onClick={() => onStopIgnoring(entry)}>
-              Stop Ignoring
-            </button>
+            <span className="actions">
+              <button className="small" onClick={() => onStopIgnoring(entry)}>
+                Stop Ignoring
+              </button>
+            </span>
           </div>
           <div className="hint">{entry.everywhere ? `Ignored everywhere on ${siteOf(data.url)}.` : 'Ignored on this page.'}</div>
         </div>
@@ -273,25 +274,26 @@ function Issues({
     <div className="issue-card" key={issue.code}>
       <div className="head">
         <Severity severity={issue.severity} />
-        <span>
+        <span className="title">
           {issue.category}: {issue.title}
         </span>
-        <span className="spacer" />
-        {/* Speed is measured again with Lighthouse, not a check. */}
-        {!issue.code.startsWith('lh_') && (
-          <button
-            className="small"
-            disabled={checkDisabled}
-            title="Fetch the page again to see whether this issue is resolved. Only this issue changes."
-            onClick={() => onCheck(issue)}
-          >
-            Check
-          </button>
-        )}
-        <Menu label="Ignore" className="small">
-          <button onClick={() => onIgnore(issue, false)}>On This Page</button>
-          <button onClick={() => onIgnore(issue, true)}>Everywhere on {siteOf(data.url)}</button>
-        </Menu>
+        <span className="actions">
+          {/* Speed is measured again with Lighthouse, not a check. */}
+          {!issue.code.startsWith('lh_') && (
+            <button
+              className="small"
+              disabled={checkDisabled}
+              title="Fetch the page again to see whether this issue is resolved. Only this issue changes."
+              onClick={() => onCheck(issue)}
+            >
+              Check
+            </button>
+          )}
+          <Menu label="Ignore" className="small">
+            <button onClick={() => onIgnore(issue, false)}>On This Page</button>
+            <button onClick={() => onIgnore(issue, true)}>Everywhere on {siteOf(data.url)}</button>
+          </Menu>
+        </span>
       </div>
       <Sources sources={issue.sources} />
       <div className="hint">{issue.description}</div>
