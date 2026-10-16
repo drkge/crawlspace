@@ -91,8 +91,12 @@ actor Library {
         if let session = sessions[id] { return session }
         let url = try packageURL(for: id)
         let store = try CrawlStore.open(at: url)
-        // A crawl saved before issues on pages that can't be indexed were set aside, sorted now.
+        // A crawl saved before issues on pages that can't be indexed were set aside, sorted now;
+        // and the site's ignore rules, as they are now, taken in.
         try? IssueVisibility.apply(store: store)
+        if let config = try? store.loadConfig() {
+            try? IssueVisibility.ignore(SettingsStore.load().ignoredIssues[MiscRoutes.site(of: config)] ?? [], store: store)
+        }
         let session = try CrawlSession(id: id, packageURL: url, store: store) { [weak self] in
             Task { await self?.activityChanged() }
         }

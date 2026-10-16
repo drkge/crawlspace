@@ -496,6 +496,10 @@ label.check input {
 .dot.sitemap {
   background: var(--text-secondary);
 }
+.dot.ignored {
+  background: transparent;
+  border: 1px solid var(--text-secondary);
+}
 .dot.running {
   background: var(--good);
   animation: pulse 1.4s infinite;

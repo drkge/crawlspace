@@ -159,6 +159,13 @@ export interface IssueSource {
   url?: string
 }
 
+/** An issue the site's rules ignore: on every page, or on some, and how many pages it's on. */
+export interface Ignored {
+  issue: Issue
+  everywhere: boolean
+  count: number
+}
+
 export interface Issue {
   code: string
   category: string
@@ -200,6 +207,8 @@ export interface Counts {
   overview: Overview
   /** Issues set aside on pages that can't be indexed, and how many pages: not in `issues`. */
   setAside: { issues: number; pages: number }
+  /** Issues the site's rules ignore, each with how many pages it's on: not in `issues`. */
+  ignored: Ignored[]
 }
 
 export interface Column {
@@ -215,6 +224,8 @@ export interface RowList {
   ids: number[]
   columns: Column[]
   issue?: Issue
+  /** For the pages whose issue is ignored. */
+  ignored?: Ignored
 }
 
 export interface Row {
@@ -288,6 +299,8 @@ export interface Inspector {
   indexabilityReason?: string
   /** Issues set aside because it can't be indexed: not in `issues`. */
   setAside: number
+  /** Issues ignored on it, each saying whether it's ignored everywhere or on this page. */
+  ignored: Ignored[]
   isPage: boolean
   serp?: {
     host: string

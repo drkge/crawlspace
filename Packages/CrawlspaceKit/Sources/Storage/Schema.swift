@@ -291,6 +291,24 @@ enum Schema {
                 """)
         }
 
+        // Issues the user chose to ignore, by the site's rules (copied here from the settings, so the
+        // analysis can keep to them), and the issues they cover: kept, but out of every list.
+        migrator.registerMigration("v9") { db in
+            try db.execute(sql: """
+                CREATE TABLE ignore_rules (
+                    code TEXT NOT NULL,
+                    url TEXT NOT NULL DEFAULT '',
+                    PRIMARY KEY (code, url)
+                ) WITHOUT ROWID;
+                CREATE TABLE issues_ignored (
+                    code TEXT NOT NULL,
+                    url_id INTEGER NOT NULL,
+                    PRIMARY KEY (code, url_id)
+                ) WITHOUT ROWID;
+                CREATE INDEX issues_ignored_on_url ON issues_ignored(url_id);
+                """)
+        }
+
         return migrator
     }
 }

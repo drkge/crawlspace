@@ -61,7 +61,7 @@ public enum PageCheck {
             ? nil
             : CredentialStore.password(account: CredentialStore.account(host: scope.startHost, username: config.basicAuthUsername)))
         let processor = PageProcessor(config: config, scope: scope, password: resolvedPassword)
-        let writer = CrawlWriter(store: store, setAside: IssueVisibility.setsAside)
+        let writer = CrawlWriter(store: store, place: IssueVisibility.place(ignoring: try store.ignoreRules()))
         let concurrency = max(1, config.concurrency)
 
         let pages = try store.discoveredURLs(ids: ids)

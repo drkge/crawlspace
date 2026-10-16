@@ -10,6 +10,8 @@ public struct Settings: Codable, Sendable, Equatable {
     public var clickUpDestinations: [String: ClickUpDestination] = [:]
     /// What the export files: "error", "warning", "notice", "lighthouse", "sitemap".
     public var clickUpGroups: [String] = ["error", "warning"]
+    /// Issues ignored on each site, by its host: on one page, or on every page.
+    public var ignoredIssues: [String: [IgnoreRule]] = [:]
     /// Check GitHub for new versions. Off only for development copies.
     public var automaticUpdates = true
     /// Who client summaries say they were prepared by, and the logo they carry: the same on every one.
@@ -26,6 +28,7 @@ public struct Settings: Codable, Sendable, Equatable {
         clickUpGroups = try c.decodeIfPresent([String].self, forKey: .clickUpGroups)
             ?? decoder.container(keyedBy: Earlier.self).decodeIfPresent([String].self, forKey: .clickUpSeverities)
             ?? d.clickUpGroups
+        ignoredIssues = try c.decodeIfPresent([String: [IgnoreRule]].self, forKey: .ignoredIssues) ?? [:]
         automaticUpdates = try c.decodeIfPresent(Bool.self, forKey: .automaticUpdates) ?? d.automaticUpdates
         reportPreparedBy = try c.decodeIfPresent(String.self, forKey: .reportPreparedBy) ?? d.reportPreparedBy
         reportLogo = try c.decodeIfPresent(String.self, forKey: .reportLogo)

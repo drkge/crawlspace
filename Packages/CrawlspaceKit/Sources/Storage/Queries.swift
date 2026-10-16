@@ -14,6 +14,8 @@ public enum URLFilter: Sendable, Hashable, Codable {
     case statusClass(Int)
     case noResponse
     case issue(String)
+    /// URLs whose issue the site's rules ignore.
+    case ignored(String)
     case redirectChains
     /// URLs listed in an XML sitemap.
     case inSitemap
@@ -49,7 +51,7 @@ public enum URLFilter: Sendable, Hashable, Codable {
             [.address, .statusCode, .indexability, .title, .wordCount]
         case .nearDuplicates:
             [.address, .statusCode, .indexability, .title, .wordCount, .inlinks]
-        case .issue:
+        case .issue, .ignored:
             [.address, .statusCode, .status, .indexability, .title, .inlinks]
         }
     }
@@ -66,6 +68,7 @@ public enum URLFilter: Sendable, Hashable, Codable {
         case .statusClass(let hundred): ("state = 1 AND status_code BETWEEN ? AND ?", [hundred * 100, hundred * 100 + 99])
         case .noResponse: ("state = 1 AND status_code IS NULL", [])
         case .issue(let code): ("id IN (SELECT url_id FROM issues WHERE code = ?)", [code])
+        case .ignored(let code): ("id IN (SELECT url_id FROM issues_ignored WHERE code = ?)", [code])
         case .redirectChains: ("id IN (SELECT start_id FROM redirect_chains)", [])
         case .inSitemap: ("in_sitemap = 1", [])
         case .extraction(let name): ("id IN (SELECT url_id FROM extractions WHERE name = ?)", [name])
@@ -102,6 +105,23 @@ public struct LinkRow: Sendable, Hashable, Identifiable, Codable {
 public struct StructuredDataRow: Sendable, Hashable, Codable {
     public var types: String
     public var error: String?
+}
+
+/// Where an issue found on a URL is kept: in the lists, set aside because the page can't be
+/// indexed, or ignored by one of the site's rules.
+public enum IssuePlace: Sendable {
+    case listed, setAside, ignored
+}
+
+/// An issue the user chose to ignore on a site: on one page, or on every page when `url` is nil.
+public struct IgnoreRule: Codable, Sendable, Hashable {
+    public var code: String
+    public var url: String?
+
+    public init(code: String, url: String? = nil) {
+        self.code = code
+        self.url = url
+    }
 }
 
 /// One issue on one URL.
@@ -560,6 +580,38 @@ extension CrawlStore {
         try pool.read { db in
             let row = try Row.fetchOne(db, sql: "SELECT COUNT(*), COUNT(DISTINCT url_id) FROM issues_set_aside")
             return (row?[0] ?? 0, row?[1] ?? 0)
+        }
+    }
+
+    /// The site's ignore rules, as copied into the crawl.
+    public func ignoreRules() throws -> [IgnoreRule] {
+        try pool.read { db in
+            try Row.fetchAll(db, sql: "SELECT code, url FROM ignore_rules ORDER BY code, url").map { row in
+                let url: String = row[1]
+                return IgnoreRule(code: row[0], url: url.isEmpty ? nil : url)
+            }
+        }
+    }
+
+    /// Pages each ignored issue is on, by code.
+    public func ignoredCounts() throws -> [String: Int] {
+        try pool.read { db in
+            Dictionary(uniqueKeysWithValues: try Row.fetchAll(db, sql: "SELECT code, COUNT(*) FROM issues_ignored GROUP BY code")
+                .map { ($0[0], $0[1]) })
+        }
+    }
+
+    /// The issues ignored on one URL.
+    public func ignoredCodes(for id: Int64) throws -> [String] {
+        try pool.read { db in
+            try String.fetchAll(db, sql: "SELECT code FROM issues_ignored WHERE url_id = ? ORDER BY code", arguments: [id])
+        }
+    }
+
+    /// Issues ignored on every page they're found on: none of them is still listed.
+    public func whollyIgnoredCodes() throws -> Set<String> {
+        try pool.read { db in
+            Set(try String.fetchAll(db, sql: "SELECT DISTINCT code FROM issues_ignored WHERE code NOT IN (SELECT code FROM issues)"))
         }
     }
 

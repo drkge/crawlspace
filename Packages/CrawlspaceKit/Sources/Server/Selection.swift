@@ -8,6 +8,8 @@ enum Selection: Hashable, Sendable {
     case overview
     case filter(URLFilter)
     case issue(String)
+    /// The pages whose issue the site's rules ignore.
+    case ignored(String)
     case extraction(String)
     case searchHit(String)
 
@@ -18,6 +20,7 @@ enum Selection: Hashable, Sendable {
         switch kind {
         case "overview": self = .overview
         case "issue" where !value.isEmpty: self = .issue(value)
+        case "ignored" where !value.isEmpty: self = .ignored(value)
         case "extraction" where !value.isEmpty: self = .extraction(value)
         case "search" where !value.isEmpty: self = .searchHit(value)
         case "filter":
@@ -45,6 +48,7 @@ enum Selection: Hashable, Sendable {
         case .overview: nil
         case .filter(let filter): filter
         case .issue(let code): .issue(code)
+        case .ignored(let code): .ignored(code)
         case .extraction(let name): .extraction(name)
         case .searchHit(let name): .searchHit(name)
         }
@@ -55,6 +59,7 @@ enum Selection: Hashable, Sendable {
         case .overview: "Overview"
         case .filter(let filter): filter.title
         case .issue(let code): IssueCatalogue.definition(for: code).map { "\($0.category.rawValue): \($0.title)" } ?? code
+        case .ignored(let code): "Ignored: " + (IssueCatalogue.definition(for: code).map { "\($0.category.rawValue): \($0.title)" } ?? code)
         case .extraction(let name), .searchHit(let name): name
         }
     }
@@ -70,7 +75,7 @@ enum Selection: Hashable, Sendable {
                 columns += [.standard(.lhMobileScore), .standard(.lhDesktopScore)]
             }
             return columns
-        case .issue(let code):
+        case .issue(let code), .ignored(let code):
             return (IssueCatalogue.definition(for: code)?.tableColumns ?? URLFilter.internalHTML.defaultColumns).asTableColumns
         case .extraction(let name):
             return [.standard(.address), .extraction(name), .standard(.statusCode), .standard(.indexability), .standard(.title)]
@@ -92,7 +97,7 @@ extension URLFilter {
         case .notCrawled: "Not Crawled"
         case .statusClass(let code): "\(code)xx Responses"
         case .noResponse: "No Response"
-        case .issue(let code): code
+        case .issue(let code), .ignored(let code): code
         case .redirectChains: "Redirect Chains"
         case .inSitemap: "In XML Sitemap"
         case .extraction(let name): name

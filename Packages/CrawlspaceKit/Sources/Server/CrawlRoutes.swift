@@ -95,10 +95,15 @@ struct CrawlRoutes {
                 let columns = selection.columns(hasLighthouse: hasLighthouse)
                 let ids = try query.map { try store.rowIDs(for: $0) } ?? []
                 var issue: IssueDTO?
+                var ignored: IgnoredDTO?
                 if case .issue(let code) = selection, let definition = IssueCatalogue.definition(for: code) {
                     issue = IssueDTO(definition)
                 }
-                return RowListDTO(title: selection.title, ids: ids, columns: columns.map(ColumnDTO.init), issue: issue)
+                if case .ignored(let code) = selection, let definition = IssueCatalogue.definition(for: code) {
+                    let everywhere = try store.ignoreRules().contains(IgnoreRule(code: code))
+                    ignored = IgnoredDTO(issue: IssueDTO(definition), everywhere: everywhere, count: ids.count)
+                }
+                return RowListDTO(title: selection.title, ids: ids, columns: columns.map(ColumnDTO.init), issue: issue, ignored: ignored)
             })
         }
 
@@ -267,6 +272,35 @@ struct CrawlRoutes {
             try await session.startCheck(rowIDs: body.rowIds, issue: body.issue)
             return JSON(await session.state())
         }
+        // Ignoring an issue on a page, or on every page of the site, and stopping: kept for the site
+        // in the settings, so later crawls keep to it too, and applied to this crawl at once.
+        crawls.post(":id/ignore") { request, context in
+            let body = try await request.decodeJSON(IgnoreBody.self, context: context)
+            guard IssueCatalogue.definition(for: body.code) != nil else { throw ServerError.badRequest("Unknown issue \(body.code).") }
+            let session = try await session(context)
+            let site = MiscRoutes.site(of: try session.store.loadConfig())
+            let settings = try SettingsStore.update { settings in
+                var rules = settings.ignoredIssues[site] ?? []
+                let rule = IgnoreRule(code: body.code, url: body.url)
+                if !rules.contains(rule) { rules.append(rule) }
+                settings.ignoredIssues[site] = rules
+            }
+            try await Self.ignore(settings.ignoredIssues[site] ?? [], in: session)
+            return Response(status: .noContent)
+        }
+        crawls.post(":id/unignore") { request, context in
+            let body = try await request.decodeJSON(IgnoreBody.self, context: context)
+            let session = try await session(context)
+            let site = MiscRoutes.site(of: try session.store.loadConfig())
+            let settings = try SettingsStore.update { settings in
+                var rules = settings.ignoredIssues[site] ?? []
+                rules.removeAll { $0.code == body.code && (body.all == true || $0.url == body.url) }
+                settings.ignoredIssues[site] = rules.isEmpty ? nil : rules
+            }
+            try await Self.ignore(settings.ignoredIssues[site] ?? [], in: session)
+            return Response(status: .noContent)
+        }
+
         crawls.get(":id/speed") { _, context in
             let store = try await session(context).store
             return JSON(try await background { try store.lighthouseMeasuredPages() })
@@ -316,15 +350,37 @@ struct CrawlRoutes {
             filters["nearDuplicates"] = nearDuplicates
         }
         let setAside = try store.setAsideCounts()
+        let everywhere = Set(try store.ignoreRules().filter { $0.url == nil }.map(\.code))
+        let ignored = try store.ignoredCounts().compactMap { code, count in
+            IssueCatalogue.definition(for: code).map { IgnoredDTO(issue: IssueDTO($0), everywhere: everywhere.contains(code), count: count) }
+        }.sorted { ($0.issue.category, $0.issue.title) < ($1.issue.category, $1.issue.title) }
         return CountsDTO(
             issues: issues, filters: filters,
             extractions: try store.extractionCounts().map { NamedCountDTO(name: $0.name, count: $0.count) },
             searches: try store.searchHitCounts().map { NamedCountDTO(name: $0.name, count: $0.count) },
             hasLighthouse: try store.hasLighthouseData(),
             overview: try store.overview(),
-            setAside: SetAsideDTO(issues: setAside.issues, pages: setAside.pages)
+            setAside: SetAsideDTO(issues: setAside.issues, pages: setAside.pages),
+            ignored: ignored
         )
     }
+}
+
+extension CrawlRoutes {
+    /// Sorts the crawl by the site's rules, and has the app load it again.
+    static func ignore(_ rules: [IgnoreRule], in session: CrawlSession) async throws {
+        let store = session.store
+        try await background { try IssueVisibility.ignore(rules, store: store) }
+        await session.events.publish("changed", ["reason": "ignored"])
+    }
+}
+
+/// An issue to ignore, or stop ignoring: on one page (`url`), or everywhere; `all` stops every
+/// rule for the issue.
+struct IgnoreBody: Decodable {
+    var code: String
+    var url: String?
+    var all: Bool?
 }
 
 /// Runs database work off the server's own threads.
