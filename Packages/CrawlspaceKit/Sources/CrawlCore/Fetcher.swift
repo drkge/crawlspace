@@ -126,6 +126,11 @@ public final class Fetcher: Sendable {
                 "User-Agent": userAgent,
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                 "Accept-Language": "en-GB,en;q=0.9",
+                // Nothing is cached here, and these ask any cache on the way — a CDN, a proxy, the
+                // site's own page cache — for a fresh copy too, as a browser's hard refresh does, so a
+                // fix that's just been made is seen rather than the copy from before it.
+                "Cache-Control": "no-cache",
+                "Pragma": "no-cache",
             ]
             return config
         }

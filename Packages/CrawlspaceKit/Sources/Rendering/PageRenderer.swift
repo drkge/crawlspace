@@ -155,8 +155,11 @@ final class RenderWebView: NSObject, WKNavigationDelegate {
 
         let loaded = await withCheckedContinuation { (continuation: CheckedContinuation<PageRenderer.RenderResult, Never>) in
             self.continuation = continuation
-            var request = URLRequest(url: url)
+            // A fresh copy of the page, as the crawler's own requests ask for: not one a cache kept.
+            var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData)
             request.timeoutInterval = timeout
+            request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+            request.setValue("no-cache", forHTTPHeaderField: "Pragma")
             webView.load(request)
             Task { [weak self] in
                 try? await Task.sleep(for: .seconds(timeout))
