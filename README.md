@@ -116,6 +116,13 @@ of the sidebar, counts, reports, ClickUp and comparisons. The Overview says how 
 Issues tab says so too. On McCalls that's 75,619 of 99,377. Crawls saved before are sorted the same
 way when opened.
 
+The later pages of a list (a collection's `?page=2` and on, a blog's `/page/2/`) are set aside the
+same way. A later page is the first page's template again, so it would repeat the first page's issues
+page after page: a long description, a deep link, and a page no sitemap lists, which it needn't be.
+A later page lists only what's wrong with it as a page: its status, a noindex, or a mistake in its
+canonical. On Chimney Sheep that takes "Indexable URLs Not in Sitemap" from 157 to 6, and
+"Crawl Depth 4+" away altogether.
+
 Issues are grouped as Errors, Warnings and Notices, and, kept apart from them, **Lighthouse** (speed)
 and **Sitemap** (the XML sitemap audit). Those two are measured differently, speed on a sample of
 pages and the sitemap against a file, and worked on separately. So they have their own groups in
@@ -496,7 +503,7 @@ placeholder at the sizes that are missing — 64pt among them.
   with its own address and canonical, so later pages are left out of duplicate titles,
   descriptions, H1s and content, and don't make their first page a duplicate either. `?page=1` is
   still counted, since it's a copy of the first page. **Crawl ▸ Run Crawl Analysis Again** brings
-  a saved crawl up to date.
+  a saved crawl up to date. A later page's other issues are set aside too: see *What it checks*.
 - **Always a fresh copy.** Crawlspace keeps no cache of its own: each fetch, render and Lighthouse
   run starts clean. Every request also asks any cache along the way for a fresh copy, as a
   browser's hard refresh does, by sending `Cache-Control: no-cache` and `Pragma: no-cache`.

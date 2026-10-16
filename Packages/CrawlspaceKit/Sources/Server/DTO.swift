@@ -244,8 +244,10 @@ struct InspectorDTO: Codable, Sendable {
     var indexable: Bool
     /// Why it can't be indexed: "Canonicalised", "Noindex", "Redirected"…
     var indexabilityReason: String?
-    /// Issues set aside because it can't be indexed: not in `issues`.
+    /// Issues set aside because it can't be indexed, or is a later page of a list: not in `issues`.
     var setAside: Int
+    /// Which page of a list it is, when it's a later one: 2 and on.
+    var laterPage: Int?
     /// Issues ignored on it, each saying whether it's ignored everywhere or on this page.
     var ignored: [IgnoredDTO]
     var isPage: Bool
@@ -274,6 +276,7 @@ struct InspectorDTO: Codable, Sendable {
         indexable = row.indexability == .indexable
         indexabilityReason = row.state == .crawled ? row.indexabilityReason : nil
         setAside = (try? store.setAsideCount(for: id)) ?? 0
+        laterPage = Pagination.laterPage(of: row.url)
         let everywhere = Set(((try? store.ignoreRules()) ?? []).filter { $0.url == nil }.map(\.code))
         ignored = ((try? store.ignoredCodes(for: id)) ?? []).compactMap { code in
             IssueCatalogue.definition(for: code).map { IgnoredDTO(issue: IssueDTO($0), everywhere: everywhere.contains(code), count: 1) }

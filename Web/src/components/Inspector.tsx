@@ -245,10 +245,15 @@ function Issues({
     </div>
   )
   // On a page that can't be indexed, only why is listed; the rest is set aside.
+  // On a later page of a list, only what's wrong with it as a page.
   const setAside = data.setAside > 0 && (
     <p className="hint">
-      This page can't be indexed{data.indexabilityReason ? ` (${data.indexabilityReason})` : ''}, so {number(data.setAside)}
-      {data.issues.length ? ' other' : ''} {data.setAside === 1 ? 'issue on it isn\'t' : 'issues on it aren\'t'} shown: only why it can't be.
+      {data.indexable && data.laterPage
+        ? `This is page ${data.laterPage} of a list, so`
+        : `This page can't be indexed${data.indexabilityReason ? ` (${data.indexabilityReason})` : ''}, so`}{' '}
+      {number(data.setAside)}
+      {data.issues.length ? ' other' : ''} {data.setAside === 1 ? 'issue on it isn\'t' : 'issues on it aren\'t'} shown:{' '}
+      {data.indexable && data.laterPage ? 'only what\'s wrong with it as a page.' : 'only why it can\'t be.'}
     </p>
   )
   if (!data.issues.length)

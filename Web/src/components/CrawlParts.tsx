@@ -230,8 +230,8 @@ export function Overview(props: {
       )}
       {counts.setAside.issues > 0 && (
         <p className="hint">
-          Not shown: {plural(counts.setAside.issues, 'issue')} on {plural(counts.setAside.pages, 'non-indexable page')}. A page that can't be indexed
-          lists only why: its status, a noindex, or a mistake in its canonical.
+          Not shown: {plural(counts.setAside.issues, 'issue')} on {plural(counts.setAside.pages, 'page')} that can't be indexed, or are later pages of a
+          list (?page=2 and on). Those list only what's wrong with them as pages: their status, a noindex, or a mistake in their canonical.
         </p>
       )}
 
